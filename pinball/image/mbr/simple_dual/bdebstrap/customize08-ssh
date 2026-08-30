@@ -1,0 +1,10 @@
+#!/bin/bash
+
+set -eu
+
+# ssh_user1=y in pinball.options does NOT actually enable SSH on the
+# apt-min64 profile (confirmed by mounting a built image and finding no
+# openssh-server, no sshd binary, no /etc/ssh) — see
+# docs/rpi-image-gen-notes.md. Install and enable it explicitly instead.
+chroot $1 apt install -y openssh-server
+chroot $1 systemctl enable ssh

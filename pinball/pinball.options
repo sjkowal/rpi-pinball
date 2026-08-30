@@ -2,8 +2,11 @@
 DEVICE_HOSTNAME=pinball
 # All variables will be translated to lower case and made available to hooks
 device_user1=pinball
-dEvIcE_UsER1pASs=CHANGE_ME_BEFORE_FLASHING
-# Enable SSH so the device is reachable without a display attached
+dEvIcE_UsER1pASs=1
+# NOTE: this flag does NOT actually enable SSH on the apt-min64 profile —
+# confirmed by inspecting a built image. Left set since it's harmless and
+# may work on other profiles, but the real SSH install/enable logic lives in
+# image/mbr/simple_dual/bdebstrap/customize08-ssh. See docs/rpi-image-gen-notes.md.
 ssh_user1=y
 # Variables set in the .cfg file can be overridden
 IMAGE_NAME=pinball

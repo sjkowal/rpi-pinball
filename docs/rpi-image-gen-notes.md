@@ -86,3 +86,71 @@ The `customize10-mpf` hook succeeded on the first try after moving it out of `po
 - `mpf-mc` still depends on **Kivy 2.2.1** under the hood (despite mpf-mc having moved to GStreamer/SDL2 for actual media rendering) — Kivy itself has a prebuilt arm64 wheel on PyPI, so this added no build time.
 - No `runuser`/non-root complications: installing as root inside the chroot and `chown`-ing `/opt/mpf` to `$IGconf_device_user1` afterward worked with zero issues.
 - Full build time end-to-end (`./build.sh`, base rootfs + `customize10-mpf` + image packaging) was **~10 minutes** on Docker Desktop for Mac, Apple Silicon (native arm64 — no QEMU emulation tax, unlike the amd64 path mentioned in `CLAUDE.local.md`).
+
+## `ssh_user1=y` does NOT work on the apt-min64 profile
+
+`device/build.defaults` documents `ssh_user1` as: "If y, automatically include net-misc/openssh-server in the profile to enable SSH access." We set `ssh_user1=y` in `pinball.options` from the start, assumed it worked, and shipped a build claiming "SSH enabled" — it doesn't.
+
+**Verified by mounting the built image directly** (no need to flash/boot a Pi to check this — much faster feedback loop):
+```sh
+fdisk -lu pinball-*.img   # find the ext4 (root) partition's start sector, multiply by 512 for byte offset
+mount -o loop,ro,offset=<bytes> pinball-*.img /mnt/root
+grep "^Package: openssh-server" /mnt/root/var/lib/dpkg/status   # nothing — not installed
+ls /mnt/root/etc/ssh/                                            # doesn't exist
+```
+(Needs a Linux mount, so run it inside a throwaway `docker run --privileged -v <deploy-dir>:/data:ro debian:bookworm bash` — same privileged-container mechanism the build itself uses, not the host Mac directly.)
+
+The `ssh_user1` flag is presumably consumed by some OTHER profile's layer (or a newer rpi-image-gen version) that conditionally adds `openssh-server` based on it — `apt-min64` doesn't wire it up. Fixed properly via `bdebstrap/customize08-ssh`, following the same working pattern as `customize05-pkgs`/`customize10-mpf`: `chroot $1 apt install -y openssh-server && chroot $1 systemctl enable ssh`. Left `ssh_user1=y` in `pinball.options` anyway (harmless, may matter on a different profile) but the comment there now points at the real mechanism.
+
+**Caveat for later**: baking `openssh-server` in at image-build time means its host keys are generated once, at build time, and are then identical across every device flashed from the same `.img` — fine for a single hobby machine, but if this image is ever flashed onto multiple pinball cabinets, add a first-boot service that deletes and regenerates `/etc/ssh/ssh_host_*` keys (the standard fix Raspberry Pi OS itself uses) rather than shipping shared keys.
+
+## WiFi: baked in via `customize09-wifi`, no NetworkManager/raspi-config here
+
+This image uses `systemd-networkd` (from the `sys-apps/systemd-net-min` layer), not NetworkManager — `raspi-config`'s usual wifi wizard doesn't apply. Also, `apt-min64` ships neither `wpasupplicant` nor `firmware-brcm80211` (the Pi 5's Broadcom wifi chip firmware), so wifi doesn't work out of the box at all, same story as SSH above.
+
+`customize09-wifi` installs both packages, writes `/etc/wpa_supplicant/wpa_supplicant-wlan0.conf` (SSID/PSK) and a `systemd-networkd` `.network` unit for `wlan0` (`DHCP=yes`, mirroring the existing `01-eth0.network` pattern from the `netgen eth0` built-in hook), then enables `wpa_supplicant@wlan0.service`.
+
+**Credentials never touch git**: real SSID/PSK live in `pinball/wifi-credentials.env` (gitignored), sourced by the hook via its known absolute path inside the build container (`/home/imagegen/pinball/wifi-credentials.env` — matches `docker-compose.yml`'s bind mount + `RPI_BUILD_USER`/`RPI_CUSTOMIZATIONS_DIR` in `build.sh`). Anyone rebuilding this repo fresh needs to create that file themselves (see README).
+
+No `country=` set in the wpa_supplicant config — wifi still works without it (falls back to the world regulatory domain), just without your country's extended channel set. Add `country=<ISO 3166-1 alpha-2>` inside the hook if you hit connectivity issues.
+
+## `mpf` crashed on every invocation — pkg_resources bug, not our packaging
+
+Discovered by chrooting into the built image and running the venv's `mpf` binary directly (mounting `/dev`+`/proc` first, same as the customize hooks need) — this is a much faster way to sanity-check "does the installed software actually run" than flashing/booting real hardware:
+```sh
+mount -o loop,offset=<root-partition-bytes> pinball-*.img /mnt/root
+mount --bind /dev /mnt/root/dev; mount --bind /proc /mnt/root/proc
+chroot /mnt/root /opt/mpf/venv/bin/mpf --help
+```
+This crashed immediately with `pkg_resources.DistributionNotFound: The 'ruamel.yaml.clib>=0.2.7' distribution was not found`, thrown from `mpf`'s own CLI loader (`mpf/commands/__init__.py`'s `get_external_commands()`, which uses the legacy `pkg_resources` API to load `mpf.command` entry points contributed by `mpf-mc`).
+
+**Root cause, reproduced independently** on a clean `python:3.11-bookworm` container (nothing to do with our chroot/piwheels/arm64 setup — this is a real upstream bug hit by `mpf~=0.57.0` + `setuptools~=72.2.0`, the exact setuptools version `mpf` itself pins):
+```sh
+pip install "setuptools~=72.2.0" "ruamel.yaml==0.18.6"
+python3 -c "import pkg_resources; pkg_resources.require('ruamel.yaml.clib>=0.2.7')"
+# -> pkg_resources.DistributionNotFound, even though pip installed it and `pip check` is clean
+```
+`ruamel.yaml.clib`'s wheel installs a dist-info directory named `ruamel_yaml_clib-0.2.15.dist-info` (dots normalized to underscores, standard modern packaging practice for a project name containing literal dots). The legacy `pkg_resources.working_set` scanner in `setuptools` 72.2.0 fails to match the requirement string `ruamel.yaml.clib>=0.2.7` against that underscore-normalized directory name — a known class of `pkg_resources`/dotted-project-name bug, unrelated to piwheels, arm64, or anything in this repo.
+
+**Verified fix**: duplicate that dist-info directory under its dotted name (`ruamel.yaml.clib-0.2.15.dist-info`) right after installing MPF — purely additive, doesn't touch any actual installed files, and confirmed (via the same clean-container repro, then against a copy of this image's actual venv) to make `pkg_resources.require(...)` resolve correctly and `mpf --help` run without error. Implemented in `customize10-mpf`.
+
+**Confirmed on real hardware** after rebuilding and flashing: SSH, WiFi, and `mpf` (with this fix) all work on an actual Pi 5.
+
+## Confirmed CLI usage (from reading `mpf/commands/__init__.py` and `mpf/commands/both.py` directly)
+
+- `mpf [machine_path]` — defaults to the `game` command (core engine only, no display). `machine_path` is optional if the current directory has a `config/` subfolder (auto-detected as the machine folder).
+- `mpf mc [machine_path]` — media controller only (`mpfmc.commands.mc`, contributed via mpf-mc's `mpf.command` entry point).
+- `mpf both [machine_path]` — **the one to actually use for a full running machine**: spawns the media controller as a subprocess and runs the core engine in the main process, both from one command (`mpf/commands/both.py`).
+- No first-boot systemd service exists yet (deliberate — see earlier "Manual for now" decision) — start manually over SSH: `cd ~/machine && mpf both`, or `mpf both ~/machine` from anywhere.
+- `/opt/mpf/venv/bin` is added to `$PATH` via `/etc/profile.d/mpf-path.sh` (written by `customize10-mpf`, same mechanism the base image already uses for its own `/etc/profile.d/01local.sh`) — works for both the autologin console session and interactive SSH logins, since both are login shells that source `/etc/profile.d/*.sh`. Not yet rebuilt/verified since adding this.
+
+## Root filesystem has zero free space by default — `apt install`/`git clone` fail with "No space left on device"
+
+`root_part_size=100%` (the layout's default, unchanged by us) means the root partition is built to *exactly* fit its contents at build time — no headroom at all, on every image, regardless of the SD card/USB drive's actual size. This isn't a permissions/read-only issue (the filesystem genuinely does mount `rw`) — it's a real disk-full condition, reproduced ourselves earlier while debugging (`cp: cannot create directory ...: No space left on device` when trying to write into the mounted image directly).
+
+**Fix, adapted from `jonnymacs/rpi-auto-resize-root`** (a working `rpi-tutorials` example whose entire purpose is exactly this problem) — full first-boot auto-expand, implemented in a single hook, `customize06-resize-root`:
+- Delegates the actual resize to **`raspi-config --expand-rootfs`** (installed via `apt install raspi-config fdisk`) rather than hand-rolling `parted`/`growpart`/`resize2fs` logic. `raspi-config`'s own implementation (`RPi-Distro/raspi-config`, `do_expand_rootfs()`) does device detection fully dynamically via `findmnt / -o source -n` + `lsblk -no pkname` — no hardcoded `/dev/mmcblk0p2`/`/dev/sda2` assumptions, so it works whether the image ends up on an SD card, USB drive, or NVMe.
+- Two-stage because a mounted partition can't be resized live: `fdisk` deletes+recreates the root partition at its original start sector with no explicit end (fills the disk) on **boot 1**, schedules a self-deleting `resize2fs_once` init.d script, then **immediately hard-reboots via `echo b > /proc/sysrq-trigger`** (not `systemctl reboot`) so the kernel re-reads the new partition table right away instead of waiting for a manual reboot. On **boot 2**, `resize2fs_once` grows the ext4 filesystem to fill the now-larger partition, then deletes itself. From **boot 3 onward**, the triggering systemd service still runs (it's never disabled) but is a no-op — guarded by a `/boot/firstboot_done` sentinel file (on the ext4 root, not the FAT boot partition — same as everywhere else in this layout, `/boot/firmware` is the actual vfat mount point, `/boot` is just an ordinary directory).
+- **This means first boot after flashing reboots itself once automatically** — expected behavior, not a crash, if you're watching the console/SSH connection drop and come back.
+- `dosfstools`/`e2fsprogs` (needed for `resize2fs`) were already installed via `customize05-pkgs`, inherited unchanged from macmind — only `raspi-config`/`fdisk` needed adding. `fdisk` isn't guaranteed present on a minimal profile (Debian split it out of `util-linux-core` into its own package), hence installing it explicitly rather than assuming it's already there.
+- **Not yet verified against real hardware** — this fundamentally needs two real reboots to prove out (partition growth, then filesystem growth), which can't be simulated via the chroot-mount inspection trick used for every other fix in this doc. After rebuilding, flashing, and booting: confirm with `df -h /` growing to roughly the full card/drive size after the automatic reboot, and check `journalctl -u expand-rootfs` for the service's own log output if it doesn't.

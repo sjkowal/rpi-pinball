@@ -57,6 +57,30 @@ chroot $1 /opt/mpf/venv/bin/pip install --upgrade pip
 # — mpf-mc only, no mpf-monitor (needs PyQt6, known Pi compatibility issues).
 chroot $1 /opt/mpf/venv/bin/pip install "mpf~=0.57.0" "mpf-mc~=0.57.0"
 
+# Work around a real upstream bug (reproduced and verified independently of
+# this image, on generic python:3.11-bookworm): mpf's CLI loader uses the
+# legacy pkg_resources API, which raises DistributionNotFound for
+# "ruamel.yaml.clib>=0.2.7" even though pip installed it correctly — this
+# crashes `mpf` immediately, on every invocation, with no machine folder even
+# loaded yet. Root cause: pkg_resources fails to match a requirement against
+# a dist-info dir whose dotted project name was normalized to underscores
+# (ruamel_yaml_clib-*.dist-info). Fix: duplicate that dist-info dir under its
+# dotted name — purely additive, doesn't touch any installed files. See
+# docs/rpi-image-gen-notes.md for the full repro/diagnosis.
+chroot $1 bash -c '
+  cd /opt/mpf/venv/lib/python3.*/site-packages
+  cp -r ruamel_yaml_clib-*.dist-info "$(ls -d ruamel_yaml_clib-*.dist-info | sed "s/^ruamel_yaml_clib/ruamel.yaml.clib/")"
+'
+
 # Let the login user manage the venv later (add packages for their machine
 # folder, etc.) without needing sudo.
 chroot $1 chown -R "$IGconf_device_user1:$IGconf_device_user1" /opt/mpf
+
+# So `mpf`/`mpf-mc`/`pip` etc. work without the full /opt/mpf/venv/bin/ path,
+# for both the autologin console session and interactive SSH logins (both are
+# login shells, which source /etc/profile.d/*.sh) — same mechanism the base
+# image already uses for its own /etc/profile.d/01local.sh.
+mkdir -p $1/etc/profile.d
+cat <<'EOF' > $1/etc/profile.d/mpf-path.sh
+export PATH="/opt/mpf/venv/bin:$PATH"
+EOF

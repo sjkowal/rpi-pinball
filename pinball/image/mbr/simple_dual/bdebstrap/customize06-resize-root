@@ -1,0 +1,48 @@
+#!/bin/bash
+
+set -eu
+
+# First-boot root filesystem auto-expand — adapted from
+# jonnymacs/rpi-auto-resize-root (see docs/rpi-image-gen-notes.md for the
+# full reference implementation this is based on). The root partition is
+# built at 100% (zero free space — see ../config.options), so there's
+# nowhere to `apt install`/`git clone` anything until this runs once.
+#
+# Delegates the actual resize to Raspberry Pi's own `raspi-config
+# --expand-rootfs`: fdisk deletes+recreates the root partition at the same
+# start sector with no explicit end (fills the disk), then schedules a
+# resize2fs_once init.d script to grow the filesystem on the NEXT boot. An
+# immediate hard reboot (via sysrq, not systemctl reboot) is needed so the
+# kernel re-reads the new partition table right away. Device detection
+# inside raspi-config itself is fully dynamic (findmnt/lsblk) — no hardcoded
+# /dev/mmcblk0p2 assumptions, works on SD/USB/NVMe alike.
+chroot $1 apt install -y raspi-config fdisk
+
+cat <<'EOF' > $1/usr/local/bin/expand-rootfs.sh
+#!/bin/bash
+if [ ! -f /boot/firstboot_done ]; then
+    raspi-config --expand-rootfs
+    touch /boot/firstboot_done
+    sync
+    echo b > /proc/sysrq-trigger
+fi
+EOF
+chroot $1 chmod +x /usr/local/bin/expand-rootfs.sh
+
+cat <<'EOF' > $1/etc/systemd/system/expand-rootfs.service
+[Unit]
+Description=Expand root filesystem on first boot
+After=local-fs.target
+Before=getty.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/expand-rootfs.sh
+RemainAfterExit=yes
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+chroot $1 systemctl enable expand-rootfs
