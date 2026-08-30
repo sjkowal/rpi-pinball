@@ -1,0 +1,62 @@
+#!/bin/bash
+
+set -eu
+
+# Install Mission Pinball Framework (MPF 0.57) + mpf-mc (media controller) and
+# P-ROC/P3-ROC hardware support into the rootfs. This runs during bdebstrap's
+# "customize" phase (mounts still live), matching the working pattern in
+# customize05-pkgs — see docs/rpi-image-gen-notes.md for why this can't live
+# in device/pi5/post-build.sh instead.
+#
+# No machine folder (game code) is baked in, and MPF is not started
+# automatically — this just leaves the device ready to `ssh` into and run
+# `mpf` manually once a machine folder is added.
+#
+# Package/version choices are based on community guidance (missionpinball
+# discussions #115) and PyPI, since the official install docs render
+# client-side and couldn't be scraped verbatim — worth a manual cross-check
+# against https://missionpinball.org/latest/install/linux/raspberry/ if
+# anything here turns out to be stale.
+pkgs=(
+  python3
+  python3-venv
+  python3-pip
+  python3-dev
+  libssl-dev
+  libncurses-dev
+  libffi-dev
+  libreadline-dev
+  libbz2-dev
+  libsqlite3-dev
+  liblzma-dev
+  tk-dev
+  libgstreamer1.0-dev
+  libgstreamer-plugins-base1.0-dev
+  libsdl2-dev
+  libsdl2-image-dev
+  libsdl2-mixer-dev
+  libavcodec-dev
+  libavformat-dev
+  libswscale-dev
+  libavdevice-dev
+  libavfilter-dev
+  cmake
+  build-essential
+  pkg-config
+  libftdi1-2
+  libftdi1-dev
+)
+chroot $1 apt install -y "${pkgs[@]}"
+
+# Dedicated venv rather than system pip, so MPF's dependencies don't collide
+# with anything else on the device.
+chroot $1 python3 -m venv /opt/mpf/venv
+chroot $1 /opt/mpf/venv/bin/pip install --upgrade pip
+
+# Pinned to the 0.57 line (not an exact patch — see docs/rpi-image-gen-notes.md)
+# — mpf-mc only, no mpf-monitor (needs PyQt6, known Pi compatibility issues).
+chroot $1 /opt/mpf/venv/bin/pip install "mpf~=0.57.0" "mpf-mc~=0.57.0"
+
+# Let the login user manage the venv later (add packages for their machine
+# folder, etc.) without needing sudo.
+chroot $1 chown -R "$IGconf_device_user1:$IGconf_device_user1" /opt/mpf
