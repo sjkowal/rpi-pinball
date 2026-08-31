@@ -1,1 +1,2 @@
 pinball/wifi-credentials.env
+pinball/wifi/*.psk

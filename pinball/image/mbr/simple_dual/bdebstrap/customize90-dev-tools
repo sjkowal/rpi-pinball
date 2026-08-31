@@ -1,8 +1,0 @@
-#!/bin/bash
-
-set -eu
-
-# Temporary development conveniences — not required by MPF, SSH, WiFi, or the
-# root-resize service. Delete this file (and rebuild) once no longer needed;
-# nothing else in this repo depends on it.
-chroot $1 apt install -y git htop vim

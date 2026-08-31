@@ -13,8 +13,13 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
 RUN curl -fsSL https://archive.raspberrypi.com/debian/raspberrypi.gpg.key \
   | gpg --dearmor > /usr/share/keyrings/raspberrypi-archive-keyring.gpg
 
-ARG RPIIG_GIT_SHA=e5766aa9b2f5a6a09b241c5553833aaa3d4ac4c3
-RUN git clone --no-checkout https://github.com/raspberrypi/rpi-image-gen.git && cd rpi-image-gen && git checkout ${RPIIG_GIT_SHA}
+# v2.8.0 is a full architectural rewrite vs. the pre-v1.0 commit this was
+# previously pinned to (new Python-driven CLI, YAML-only config, no more
+# profile/ files) — see docs/rpi-image-gen-notes.md and pinball/pinball.yaml.
+# Pinned to a tag now instead of a commit SHA since upstream has real
+# releases; `git checkout` works identically for either.
+ARG RPIIG_GIT_REF=v2.8.0
+RUN git clone --no-checkout https://github.com/raspberrypi/rpi-image-gen.git && cd rpi-image-gen && git checkout ${RPIIG_GIT_REF}
 
 ARG TARGETARCH
 RUN echo "Building for architecture: ${TARGETARCH}"
@@ -27,7 +32,12 @@ RUN /bin/bash -c '\
     amd64) echo "Try to Build for amd64. \
       As of Apr 2025 rpi-image-gen install_deps exits if arm arch is not detected. \
       Override binfmt_misc_required flag and install known amd64 deps that are not \
-      provided in the depends file" && \
+      provided in the depends file. \
+      UNVERIFIED against v2.8.0 (only build/test on native arm64) — v2.8.0 \
+      refactored scripts/dependencies_check into lib/dependencies.sh and \
+      changed binfmt_misc checking from mounted to supported specifically to \
+      fix containerized cross-arch builds, so the sed patch below and even \
+      its necessity may both be stale now." && \
 
       sed -i "s|\"\${binfmt_misc_required}\" == \"1\"|! -z \"\"|g" rpi-image-gen/scripts/dependencies_check && \
 

@@ -1,0 +1,59 @@
+# rpi-image-gen v2.8.0 config — replaces the old pinball.cfg + pinball.options
+# (INI/.options support was fully removed as of v2.8.0; YAML is the only
+# format now). See docs/rpi-image-gen-notes.md for the full v2.8.0 migration
+# writeup and why each layer below is included.
+
+device:
+  layer: rpi5
+  hostname: pinball
+  user1: pinball
+  # v2.8.0 enforces password complexity here (8+ chars, upper+lower+digit+
+  # special char via regex) — the old "1" password fails validation outright.
+  # CHANGE THIS before building; pick something that satisfies the regex in
+  # layer/base/device-user-credentials.yaml, or use user1passhash instead
+  # (see rpi-image-gen/bin/genpasswd) if you want a weak password anyway.
+  user1pass: "ChangeMe1234!"
+  # Passwordless sudo is no longer the default (v2.4.0+) — set explicitly to
+  # keep the same behavior the old image had.
+  user1sudo: nopasswd
+
+image:
+  layer: image-rpios
+  boot_part_size: 100%
+  root_part_size: 100%
+  name: pinball
+
+# rpi5 pulls in the rpi-linux-2712 kernel, which has a 16K page size.
+# image-rpios has an automatic trigger that sets the ext4 block size to
+# match (IGconf_linux_page_size=16384), but the installed e2fsprogs (1.47.0)
+# can't actually create an ext4 filesystem with 16384-byte blocks — mke2fs
+# warns "16384-byte blocks too big for system (max 4096)" and then fails
+# outright ("Could not allocate block"). Override back to a normal 4096
+# block size. See docs/rpi-image-gen-notes.md.
+fs:
+  ext4_mkfs_args: "-F -b 4096"
+
+layer:
+  base: bookworm-minbase
+  wifi: iwd
+  wifi_reg: wireless-regulatory
+  locale: locale-base
+  locale_gen: locale-gen
+  mpf: pinball-mpf
+  resize: pinball-resize-root
+
+# iwd network profile file (iwd.network(5) format: [Security]\nPassphrase=...,
+# filename must match the SSID). Real SSID/PSK live only in
+# pinball/wifi/Space.psk, which is gitignored — never committed. No country
+# regulatory domain set (ieee80211.regdom defaults to "00", the world
+# domain) — add one if you hit connectivity issues.
+iwd:
+  profile: /home/imagegen/pinball/wifi/Space.psk
+
+locale:
+  timezone: America/Chicago
+
+packages:
+  - git
+  - htop
+  - vim

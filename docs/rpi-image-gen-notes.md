@@ -2,6 +2,8 @@
 
 Working notes on how [raspberrypi/rpi-image-gen](https://github.com/raspberrypi/rpi-image-gen) actually behaves, gathered from its own docs/source and from [jonnymacs/rpi-tutorials](https://github.com/jonnymacs/rpi-tutorials)'s example repos. None of this is derivable just from reading this repo's customization tree — it comes from the upstream framework's internals. Written down so we don't have to re-derive it.
 
+**Everything below this point describes the pre-v1.0 pinned commit this project used through `main`.** The `adopt_2.8.0` branch migrated to the current v2.8.0 release, which is a complete architectural rewrite (new Python-driven CLI, YAML-only config, no more `profile/` files, `.cfg`/`.options` fully removed) — see the "v2.8.0 migration" section at the end of this file for what changed and what's still true.
+
 ## The hook lifecycle — and the bug it caused us
 
 rpi-image-gen builds in phases (`docs/execution/index.adoc` in the upstream repo):
@@ -173,3 +175,58 @@ Root cause has two parts, both present in the `apt-min64` profile:
 **Fix, `customize95-dns`**: `apt install systemd-resolved`, enable it, then force-replace `/etc/resolv.conf` with the standard `/run/systemd/resolve/stub-resolv.conf` symlink ourselves (rather than trust `systemd-resolved`'s postinst to handle an already-present, foreign, Docker-injected file correctly).
 
 **Critical ordering constraint — this hook MUST run last** (hence the `95` prefix, highest of all our `customizeNN-*` hooks). The symlink it creates only resolves to a real file once `systemd-resolved` is actually *running*, which it isn't during the build (a chroot has no init system). Any `apt install` inside the chroot *after* this hook runs would itself fail to resolve `deb.debian.org` and break the build — this would have been a nasty one to debug blind, since it only would have surfaced as a mysterious apt failure in whichever hook happened to run after it, with no obvious connection to DNS.
+
+---
+
+## v2.8.0 migration (`adopt_2.8.0` branch)
+
+Migrated from the pre-v1.0 commit above to the current `v2.8.0` tag. This is a **complete rewrite**, not a version bump — confirmed by fetching every release's notes (v1.0.0 through v2.8.0) and diffing the actual repo tree between our old pinned commit and v2.8.0. The rewrite landed between `v1.0.0` and `v2.0.0-rc.1` (days apart); everything from v2.1 onward is incremental refinement on the new architecture.
+
+### What changed structurally
+- CLI: `./build.sh -D <dir> -c <config>.cfg -o <options>.options` → `./rpi-image-gen build -S <srcroot> -c <config>.yaml`.
+- Config format: `.cfg`+`.options` (INI) → a single YAML file. INI support is fully gone as of v2.8.0 — this was a schema rewrite, not a find/replace.
+- "Profiles" removed entirely. `apt-min64` no longer exists by that name — its functional equivalent is the `bookworm-minbase` layer (`layer/suite/debian/bookworm-minbase.yaml`), referenced directly by name in the config's `layer:` section.
+- `image/mbr/simple_dual/` keeps its path and its `bdebstrap/customizeNN-*` hook convention (still discovered the same way), but `config.options` → `image.yaml`.
+- Custom logic now belongs in **custom layer YAML files** (`pinball/layer/*.yaml`, discovered via `-S`), not a wholesale copy of the built-in image directory. `mmdebstrap: customize-hooks:` is an inline list of shell snippets right in the layer file — no separate hook script files needed. See `examples/custom_layers/` in the upstream repo for the reference pattern this project's `pinball-mpf`/`pinball-resize-root` layers are based on.
+- **Layer labels become shell variable names** (`IGconf_layer_<label>`) — hyphens in a label (e.g. `wifi-reg:`) produce an invalid variable name and fail immediately. Use underscores (`wifi_reg:`).
+
+### What got simpler (old custom hooks → new mechanism)
+- `customize08-ssh` → **gone entirely**. `bookworm-minbase` requires `openssh-server` unconditionally — SSH is just always there. The `openssh-server` layer also now generates host SSH keys at boot (not build) time, fixing the "shared host keys across clones" risk we'd flagged as a known caveat under the old system.
+- `customize09-wifi` (hand-rolled `wpa_supplicant`+`systemd-networkd` config) → the built-in `iwd` layer + an `iwd.network(5)` profile file (`pinball/wifi/<SSID>.psk`, gitignored, containing `[Security]\nPassphrase=...`), referenced via `iwd.profile` in the config. WiFi firmware (`firmware-brcm80211`) and `wlan0`'s DHCP config are *also* now automatic, provided by `rpi-device-base` — nothing to configure at all beyond the profile file.
+- `customize95-dns` → **untested whether still needed** (kept anyway, low cost) — `bookworm-minbase` transitively requires `systemd-net-min` → `systemd-resolved`, so DNS resolution should now come for free. Confirmed via the build log that `systemd-resolved` gets enabled and its stub-resolv.conf seeded automatically.
+- `customize90-dev-tools` (git/htop/vim) → the new top-level `packages:` config section. No layer file needed at all for a plain package list.
+- `customize06-resize-root` → **ported essentially unchanged**, now as a custom layer (`pinball-resize-root.yaml`) instead of a bdebstrap hook file. No upstream replacement exists for the plain flash-and-boot workflow (`expand-to-fit` only applies through the full fastboot/IDP/`rpi-sb-provisioner` pipeline, which this project doesn't use).
+- `customize10-mpf` → ported essentially unchanged as `pinball-mpf.yaml`, same install logic (venv, pip, the `ruamel.yaml.clib` pkg_resources fix, `/etc/profile.d/mpf-path.sh`).
+
+### New required settings for parity
+- **Password complexity is now enforced** (`device-user-credentials` layer): 8+ chars, upper+lower+digit+special-char, via regex. A weak password fails validation at the `parameter_assembly` stage, before any building starts.
+- **Passwordless sudo is no longer the default** — set `device.user1sudo: nopasswd` explicitly to match the old image's behavior.
+- **Timezone is a single IANA string now** (`locale.timezone: America/Chicago`), not split area/city debconf values — simpler than before. Requires explicitly including the `locale-base`+`locale-gen` layers (not pulled in by `bookworm-minbase`).
+
+### Real bug hit during migration: 16K page size breaks ext4 image generation on Pi 5
+
+`rpi5`'s device layer requires the `rpi-linux-2712` kernel, which has a 16K page size (`IGconf_linux_page_size=16384`). `image-rpios` has a trigger that sets the ext4 mkfs block size to match the kernel's page size — but the installed `e2fsprogs` (1.47.0) can't actually create an ext4 filesystem with 16384-byte blocks:
+```
+Warning: 16384-byte blocks too big for system (max 4096), forced to continue
+mke2fs: Could not allocate block in ext2 filesystem while populating file system
+```
+This happens at the very end of the build, in `generate_images` — after the entire rootfs (including all custom layers) has already built successfully, so it's an expensive failure to hit blind. Upstream's own v2.3.0 release notes actually flag this exact scenario in a migration note: *"On 16K page kernels, add `IGconf_fs_ext4_mkfs_args: -b 4096` for identical partition sizing."* Fixed in `pinball.yaml`:
+```yaml
+fs:
+  ext4_mkfs_args: "-F -b 4096"
+```
+
+### Verification status
+
+**Full build succeeded end-to-end** (rootfs + image assembly, ~20 minutes) after the `ext4_mkfs_args` fix. Chroot-inspected the result (same technique used throughout this project — mount the root partition read-only, bind-mount `/dev`+`/proc`, execute binaries directly) and confirmed full parity with the old pinned-commit image:
+
+- SSH: `openssh-server` installed, `ssh.service` **and** `ssh-hostkeys-generate.service` enabled (host keys generate at boot, not build time — an improvement over the old system's shared-host-key risk).
+- WiFi: `pinball/wifi/Space.psk` correctly installed to `/var/lib/iwd/Space.psk` with the right content, `iwd.service` enabled.
+- **DNS confirmed fixed automatically** — `/etc/resolv.conf` is correctly symlinked to `../run/systemd/resolve/stub-resolv.conf`, with no custom hook of ours involved at all (we didn't port `customize95-dns` to this branch — `bookworm-minbase`'s transitive `systemd-resolved` dependency handles it entirely on its own). Note: `systemctl enable systemd-resolved` produces no discoverable symlink under `/etc/systemd/system/` (it's a static/preset-enabled unit on Debian) — don't go looking for one as a health check, check the `resolv.conf` symlink target instead.
+- `expand-rootfs.service` present and enabled, script content correct.
+- `git`/`htop`/`vim` all installed and on `$PATH`.
+- Timezone: `America/Chicago`.
+- `mpf --help` runs cleanly — the `ruamel.yaml.clib` fix carried over correctly into the new layer.
+- `pinball` user's groups include `sudo`, `dialout`, `plugdev`, `spi`, `i2c`, `gpio` (P-ROC/hardware access) — via `device-user-credentials`'s sensible default `user1groups`, nothing we had to configure.
+
+**Not yet done**: flashing/booting on real hardware. Everything above is chroot-verifiable; the two-reboot resize-root behavior specifically (like on the old system) can only be fully proven on real hardware.
