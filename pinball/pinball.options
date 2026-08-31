@@ -10,3 +10,7 @@ dEvIcE_UsER1pASs=1
 ssh_user1=y
 # Variables set in the .cfg file can be overridden
 IMAGE_NAME=pinball
+# Overrides device/build.defaults' timezone="Europe/London" default — US
+# Central time (America/Chicago covers both CST/CDT automatically via IANA's
+# built-in DST rules).
+device_timezone="America/Chicago"
