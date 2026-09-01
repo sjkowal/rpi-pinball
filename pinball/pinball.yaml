@@ -22,16 +22,46 @@ image:
   boot_part_size: 100%
   root_part_size: 100%
   name: pinball
+  # The entire "by-slot" root-discovery mechanism (root=/dev/disk/by-slot/system
+  # on the kernel cmdline, resolved via a udev rule that needs a successful
+  # blkid probe of the ext4 filesystem) turned out to be fundamentally
+  # unreliable in this initramfs's minimal BusyBox blkid, regardless of ext4
+  # feature flags (see the fs.ext4_mkfs_args comment below — disabling
+  # metadata_csum/64bit did NOT fix it). Bypassing it for ROOT specifically:
+  # pin the MBR disk signature to a fixed, known value (instead of "random")
+  # so pinball/pre-image.sh can patch image-rpios's setup.sh to point root=
+  # and fstab's `/` line at a PARTUUID derived from it instead — the kernel
+  # resolves PARTUUID directly from the partition table at boot, no blkid or
+  # udev involved at all. BOOT's by-slot symlink is left alone since vfat
+  # blkid detection already works correctly (confirmed on real hardware).
+  # See docs/rpi-image-gen-notes.md for the full story.
+  disksig: "0x50494e42"
 
-# rpi5 pulls in the rpi-linux-2712 kernel, which has a 16K page size.
-# image-rpios has an automatic trigger that sets the ext4 block size to
-# match (IGconf_linux_page_size=16384), but the installed e2fsprogs (1.47.0)
-# can't actually create an ext4 filesystem with 16384-byte blocks — mke2fs
-# warns "16384-byte blocks too big for system (max 4096)" and then fails
-# outright ("Could not allocate block"). Override back to a normal 4096
-# block size. See docs/rpi-image-gen-notes.md.
+# Two independent ext4-compatibility attempts, both found on real hardware —
+# see docs/rpi-image-gen-notes.md for the full story on each:
+#
+# 1. rpi5 pulls in the rpi-linux-2712 kernel, which has a 16K page size.
+#    image-rpios has an automatic trigger that sets the ext4 block size to
+#    match (IGconf_linux_page_size=16384), but the installed e2fsprogs
+#    (1.47.0) can't actually create an ext4 filesystem with 16384-byte
+#    blocks — mke2fs warns "16384-byte blocks too big for system (max
+#    4096)" and then fails outright ("Could not allocate block"). Override
+#    back to a normal 4096 block size (`-b 4096`). This part is a genuine fix.
+#
+# 2. image/mbr/simple_dual/mke2fs.conf enables `metadata_csum,64bit` by
+#    default for ext4. Initial theory: the minimal BusyBox `blkid` inside
+#    the initramfs couldn't identify the filesystem because of these
+#    features. Disabling them was WRONG/insufficient on its own — confirmed
+#    on real hardware that blkid still can't identify the filesystem at all
+#    even with both features off. Left this override in place anyway
+#    (harmless, standard compatibility practice, same pattern genimage's own
+#    template already uses for `large_file`/`huge_file`) but the actual fix
+#    for root discovery is the `image.disksig` PARTUUID bypass above, applied
+#    by pinball/pre-image.sh (a plain SRCROOT pre-image.sh hook, not a layer
+#    — it patches image-rpios's own setup.sh in place, so it needs no layer
+#    registration; rpi-image-gen's runner picks it up automatically).
 fs:
-  ext4_mkfs_args: "-F -b 4096"
+  ext4_mkfs_args: "-F -b 4096 -O ^64bit,^metadata_csum"
 
 layer:
   base: bookworm-minbase
@@ -41,6 +71,7 @@ layer:
   locale_gen: locale-gen
   mpf: pinball-mpf
   resize: pinball-resize-root
+  bootdev_fix: pinball-bootdev-fix
 
 # iwd network profile file (iwd.network(5) format: [Security]\nPassphrase=...,
 # filename must match the SSID). Real SSID/PSK live only in

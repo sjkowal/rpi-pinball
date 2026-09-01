@@ -1,0 +1,40 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-bootdev-fix
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: Fixes a real hardware boot failure on Pi 5 ("... is
+#  invalid for boot mode 1 (mmcblk0)", "Give up waiting for root file
+#  system device", "Dropping to a shell") caused by an upstream bug in
+#  rpi-storage-binder's rpi-bootdev-tag script — see
+#  docs/rpi-image-gen-notes.md.
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Requires: rpi-storage-binder
+# METAEND
+---
+mmdebstrap:
+  customize-hooks:
+    - |-
+      # rpi-bootdev-tag's device-tree boot-partition lookup has a "legacy
+      # compat" fallback (treat a reported boot-mode partition index of 0
+      # as partition 1) that's explicitly SKIPPED for Pi4/Pi5
+      # (`case $GEN in 4|5);; ...`), on the assumption their bootloader
+      # always reports a real partition index. On real hardware we hit
+      # exactly this case: the bootloader reported partition=0, producing
+      # an invalid /dev/mmcblk0p0 device path, which made rpi-bootdev-tag
+      # die during the initramfs boot-device udev tagging step — breaking
+      # root filesystem discovery entirely ("Give up waiting for root
+      # file system device", "Dropping to a shell").
+      #
+      # Fix: apply the same 0->1 fallback unconditionally, regardless of
+      # Pi generation. Safe for our layout specifically since BOOT is
+      # always partition 1 in image-rpios's mbr/simple_dual layout.
+      #
+      # Must run after rpi-storage-binder installs the original file but
+      # before customize60-initramfs-tools bakes it into the initramfs —
+      # this layer's hooks (like all layer-YAML customize-hooks) run
+      # before the numbered bdebstrap/customizeNN-* files, so ordering is
+      # already correct without anything special on our part.
+      chroot $1 sed -i '/4|5);;/d' /usr/bin/rpi-bootdev-tag
+      if chroot $1 grep -q '4|5);;' /usr/bin/rpi-bootdev-tag; then
+        echo "pinball-bootdev-fix: expected pattern still present after sed -- upstream file may have changed, review this fix" >&2
+        exit 1
+      fi
