@@ -97,21 +97,27 @@ layer:
   # history. Both files below are kept for reference, not deleted.
   # imager_firstboot: pinball-imager-firstboot
   # imager_custom_fix: pinball-patch-imager-custom
-  debug_shell: pinball-debug-shell
+  # REMOVED (2026-09-08): whole saga above confirmed working end-to-end on
+  # real hardware (hostname/user/SSH/WiFi all correct from a single Imager
+  # flash) -- this unauthenticated-root-shell debugging aid served its
+  # purpose (though in the end live SSH access, once boot itself stopped
+  # crashing, answered every remaining question -- this was never actually
+  # used to diagnose the final WiFi bug) and has no reason to ship. File
+  # kept for reference like everything else in this saga.
+  # debug_shell: pinball-debug-shell
   preseed: pinball-preseed
   locale: locale-base
   locale_gen: locale-gen
   mpf: pinball-mpf
   resize: pinball-resize-root
   bootdev_fix: pinball-bootdev-fix
-  # DEBUG (2026-09-01): temporarily disabled -- image isn't booting after the
-  # NetworkManager/custom.toml changes and, with splash+quiet-boot active,
-  # there's no visible kernel/systemd text at all to diagnose why (splash
-  # strips console=tty1 entirely; quiet-boot masks getty@tty1 and suppresses
-  # systemd status). Re-enable both once the underlying boot failure is
-  # found and fixed -- see docs/rpi-image-gen-notes.md.
-  # splash_screen: rpi-splash-screen
-  # quiet_boot: pinball-quiet-boot
+  # RE-ENABLED (2026-09-08): disabled since 2026-09-01 for console
+  # visibility during the boot-crash/Imager-customisation saga documented
+  # at length in docs/rpi-image-gen-notes.md. That whole saga is now
+  # confirmed resolved end-to-end on real hardware -- the boot sequence
+  # these two layers hide text from is proven working, so re-enabling.
+  splash_screen: rpi-splash-screen
+  quiet_boot: pinball-quiet-boot
 
 # Boot splash: shows a fullscreen image (via the kernel's built-in
 # fullscreen_logo feature, applied as early in boot as the initramfs) in
@@ -131,11 +137,8 @@ layer:
 # -- ImageMagick writes TGA bottom-up by default; this placeholder was
 # instead written with the top-left-origin descriptor bit set, so no flip
 # was needed for it specifically).
-# DEBUG: splash_screen layer disabled above, so this section is currently
-# unused -- commented out to avoid config for an absent layer. Re-enable
-# alongside the layer entry above.
-#splash:
-#  image_path: /home/imagegen/pinball/assets/splash.tga
+splash:
+  image_path: /home/imagegen/pinball/assets/splash.tga
 
 # No build-time-baked WiFi network anymore (previously iwd.profile pointing
 # at the gitignored pinball/wifi/Space.psk -- now unused, safe to delete).
