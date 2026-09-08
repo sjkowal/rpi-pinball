@@ -7,14 +7,20 @@ device:
   layer: rpi5
   hostname: pinball
   user1: pinball
-  # v2.8.0 enforces password complexity here (8+ chars, upper+lower+digit+
-  # special char via regex) — the old "1" password fails validation outright.
-  # CHANGE THIS before building; pick something that satisfies the regex in
-  # layer/base/device-user-credentials.yaml, or use user1passhash instead
-  # (see rpi-image-gen/bin/genpasswd) if you want a weak password anyway.
-  user1pass: "ChangeMe1234!"
-  # Passwordless sudo is no longer the default (v2.4.0+) — set explicitly to
-  # keep the same behavior the old image had.
+  # Deliberately no user1pass/user1passhash: per device-user-credentials.yaml,
+  # "if neither is set, the account will be locked" -- intentional for a
+  # publicly distributed image. This account exists only as a UID-1000
+  # placeholder for userconf-pi to rename+repassword at first boot from
+  # Raspberry Pi Imager's OS Customisation (custom.toml / firstrun.sh) -- see
+  # the [user]/[wlan] section below and docs/rpi-image-gen-notes.md. Until
+  # that runs, there is no way to log in (by design) -- to build a private
+  # image for yourself instead, set user1pass here (must satisfy the regex in
+  # layer/base/device-user-credentials.yaml) and skip Imager customization.
+  #
+  # nopasswd is safe to keep despite the locked password: sudo access is
+  # moot until the account has a real password anyway, and renaming via
+  # userconf preserves UID/GID/group membership, so nopasswd sudo carries
+  # over to whatever username the end user picks.
   user1sudo: nopasswd
 
 image:
@@ -65,21 +71,86 @@ fs:
 
 layer:
   base: bookworm-minbase
-  wifi: iwd
+  # No standalone iwd layer -- pinball-networkmanager now uses
+  # NetworkManager's own default wifi backend (wpa_supplicant), not iwd
+  # (see that layer's file for why: a real NetworkManager+iwd PSK-handling
+  # bug found on real hardware). Keeping iwd installed alongside would mean
+  # two separate daemons both trying to manage wlan0's radio.
+  wifi_nm: pinball-networkmanager
   wifi_reg: wireless-regulatory
+  # ABANDONED (2026-09-03), after five real-hardware test cycles: every
+  # attempt to make Raspberry Pi Imager's "systemd" init_format work
+  # (custom.toml via our own init= trigger, patching firstboot to
+  # neutralise Imager's own systemd.run=/kernel-command-line.target
+  # trigger, patching imager_custom's do_hostname call specifically) either
+  # crashed on boot 2 or left the system unhung but with nothing applied.
+  # The common thread: every one of those approaches depended on Imager's
+  # `systemd.run=/boot/firstrun.sh` + `systemd.unit=kernel-command-line.target`
+  # early-boot injection mechanism, which reliably hangs on this image for
+  # reasons never fully pinned down (no live process state was ever
+  # actually captured -- systemd.debug-shell's tty9 access was never
+  # confirmed to render). Switched entirely to `init_format: "rpi-preseed"`
+  # instead (see pinball-preseed.yaml) -- a genuinely different mechanism
+  # that writes a plain TOML file with NO cmdline.txt modification at all,
+  # consumed by a normal systemd oneshot service gated on the file's
+  # presence. See docs/rpi-image-gen-notes.md for the full multi-attempt
+  # history. Both files below are kept for reference, not deleted.
+  # imager_firstboot: pinball-imager-firstboot
+  # imager_custom_fix: pinball-patch-imager-custom
+  debug_shell: pinball-debug-shell
+  preseed: pinball-preseed
   locale: locale-base
   locale_gen: locale-gen
   mpf: pinball-mpf
   resize: pinball-resize-root
   bootdev_fix: pinball-bootdev-fix
+  # DEBUG (2026-09-01): temporarily disabled -- image isn't booting after the
+  # NetworkManager/custom.toml changes and, with splash+quiet-boot active,
+  # there's no visible kernel/systemd text at all to diagnose why (splash
+  # strips console=tty1 entirely; quiet-boot masks getty@tty1 and suppresses
+  # systemd status). Re-enable both once the underlying boot failure is
+  # found and fixed -- see docs/rpi-image-gen-notes.md.
+  # splash_screen: rpi-splash-screen
+  # quiet_boot: pinball-quiet-boot
 
-# iwd network profile file (iwd.network(5) format: [Security]\nPassphrase=...,
-# filename must match the SSID). Real SSID/PSK live only in
-# pinball/wifi/Space.psk, which is gitignored — never committed. No country
-# regulatory domain set (ieee80211.regdom defaults to "00", the world
-# domain) — add one if you hit connectivity issues.
-iwd:
-  profile: /home/imagegen/pinball/wifi/Space.psk
+# Boot splash: shows a fullscreen image (via the kernel's built-in
+# fullscreen_logo feature, applied as early in boot as the initramfs) in
+# place of kernel/systemd boot text. pinball-quiet-boot (above) covers the
+# rest -- systemd status lines and the tty1 login prompt, which the splash
+# mechanism itself doesn't suppress once early boot finishes.
+#
+# pinball/assets/splash.tga is currently a placeholder (solid background +
+# a plain rectangle), generated without any image tooling since neither the
+# build container nor this Mac had ImageMagick installed. Replace it with
+# real artwork before shipping -- constraints from the layer's own
+# validation (see rpi-image-gen/layer/rpi/device/splash-screen/*.adoc):
+# 24-bit TGA, uncompressed, <=1920x1080, fewer than 224 colours. Easiest
+# path if you have ImageMagick: `convert art.png -resize 1920x1080
+# -background black -gravity center -extent 1920x1080 -depth 8 -colors 224
+# -type truecolor splash.tga` (add `-flip`, or otherwise verify orientation
+# -- ImageMagick writes TGA bottom-up by default; this placeholder was
+# instead written with the top-left-origin descriptor bit set, so no flip
+# was needed for it specifically).
+# DEBUG: splash_screen layer disabled above, so this section is currently
+# unused -- commented out to avoid config for an absent layer. Re-enable
+# alongside the layer entry above.
+#splash:
+#  image_path: /home/imagegen/pinball/assets/splash.tga
+
+# No build-time-baked WiFi network anymore (previously iwd.profile pointing
+# at the gitignored pinball/wifi/Space.psk -- now unused, safe to delete).
+# Two reasons: (1) this config is meant to produce a publicly distributable
+# image, and baking a personal home network's real SSID/password into a
+# binary .img that ships to other people would leak it, gitignored or not;
+# (2) it would silently stop working anyway now that network-manager-iwd is
+# in the layer list -- once NetworkManager owns wlan0, it manages
+# connections through its own .nmconnection profiles via D-Bus, not iwd's
+# native /var/lib/iwd/*.psk files. WiFi is now entirely end-user-supplied,
+# via Raspberry Pi Imager's OS Customisation (gear icon before writing),
+# consumed by pinball-preseed -- see that layer's file for the full story
+# of how we got here (five real-hardware test cycles fighting Imager's
+# "systemd" init_format before switching to "rpi-preseed") and
+# docs/rpi-image-gen-notes.md.
 
 locale:
   timezone: America/Chicago

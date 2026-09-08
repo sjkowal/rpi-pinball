@@ -1,0 +1,52 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-networkmanager
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: NetworkManager, scoped to wlan0 only, so Raspberry Pi
+#  Imager's WiFi customisation (which writes a NetworkManager
+#  .nmconnection profile, confirmed directly onto the root partition at
+#  flash time rather than via any deferred toml mechanism -- see
+#  docs/rpi-image-gen-notes.md) works on this image without disturbing the
+#  existing systemd-networkd-managed eth0. Deliberately installed as plain
+#  packages, not via rpi-image-gen's own network-manager/network-manager-iwd
+#  layers: those declare Provides: network-activator, which hard-conflicts
+#  with bookworm-minbase's required systemd-net-min (same role, already
+#  providing eth0). Scoping instead of replacing sidesteps the conflict
+#  entirely rather than fighting rpi-image-gen's provider-conflict check.
+#
+#  Uses NetworkManager's own default wifi backend (wpa_supplicant), NOT
+#  iwd -- switched away from iwd on 2026-09-04 after real-hardware testing
+#  found a genuine bug in the NetworkManager+iwd integration: Imager's
+#  WiFi profiles always store a pre-derived 64-hex-char WPA-PSK (never the
+#  plaintext passphrase -- confirmed via a real profile it wrote), and
+#  while NetworkManager's own connection store loads that PSK correctly
+#  (`nmcli -s connection show` displays the right value), activation via
+#  the iwd backend failed every time with "Secrets were required, but not
+#  provided" -- iwd's own secret-agent protocol apparently doesn't accept
+#  a raw hex PSK the way NetworkManager's native wpa_supplicant-based
+#  backend does. Confirmed empirically: the identical SSID connected
+#  immediately via `nmcli device wifi connect <ssid> password <passphrase>`
+#  (plaintext path, unaffected), proving the bug is specifically in the
+#  PSK-format handoff to iwd, not WiFi/hardware/regulatory-domain in
+#  general. Since Imager's PSK format isn't something we control, fixed it
+#  on our end by using the backend combination that's known to handle it.
+# X-Env-Layer-Version: 2.0.0
+# METAEND
+---
+mmdebstrap:
+  packages:
+    - network-manager
+    - wpasupplicant
+  customize-hooks:
+    - $BDEBSTRAP_HOOKS/enable-units "$1" NetworkManager
+    - |-
+      # Scope NetworkManager to wlan0 only -- eth0 stays on systemd-networkd,
+      # completely untouched, avoiding any runtime fight over it.
+      printf '[keyfile]\nunmanaged-devices=interface-name:eth0\n' > "$1/etc/NetworkManager/conf.d/unmanaged-eth0.conf"
+    - |-
+      # Mirror image of the above: tell systemd-networkd to leave wlan0
+      # alone so the two don't race to configure/DHCP the same interface.
+      # A drop-in against 02-wlan0.network (not an edit to that file itself)
+      # is immune to hook-ordering races with whatever layer creates it --
+      # systemd merges base file + drop-ins at parse time, not write time.
+      mkdir -p "$1/etc/systemd/network/02-wlan0.network.d"
+      printf '[Link]\nUnmanaged=yes\n' > "$1/etc/systemd/network/02-wlan0.network.d/10-networkmanager.conf"

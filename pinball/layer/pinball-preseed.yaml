@@ -1,0 +1,55 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-preseed
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: Consumes Raspberry Pi Imager's OS Customisation data via
+#  the "rpi-preseed" init_format instead of the "systemd" format used by
+#  every earlier attempt in this saga (see docs/rpi-image-gen-notes.md for
+#  the full multi-attempt history). "rpi-preseed" writes a single plain
+#  /boot/firmware/rpi-preseed.toml file with NO cmdline.txt modification at
+#  all -- no init= kernel override, no systemd.run=/kernel-command-line.target
+#  special early-boot target, none of the mechanisms responsible for every
+#  hang/crash in this saga. Consumption is gated purely on the file's
+#  presence via a normal systemd ConditionPathExists=, running as an
+#  ordinary oneshot service during regular multi-user boot -- full journald
+#  logging, no exotic boot target, nothing to go silently wrong.
+#
+#  The TOML schema (config_version/[system]/[user]/[ssh]/[wlan]/[locale])
+#  is the same one custom.toml uses -- this layer implements its own
+#  minimal, from-scratch consumer (pinball-apply-preseed.py) rather than
+#  reusing raspberrypi-sys-mods/imager_custom/raspi-config, since those are
+#  exactly the components repeated real-hardware testing traced this
+#  saga's hangs to. Uses only tools already proven working on this image:
+#  userconf-pi (renames the locked UID-1000 placeholder + sets password,
+#  confirmed correct earlier in this project), a directly-written
+#  NetworkManager .nmconnection file (matches how our scoped
+#  pinball-networkmanager layer already expects WiFi to be configured),
+#  and plain file writes for hostname/SSH keys/locale -- the same
+#  approach firstrun.sh's own imager_custom-absent fallback paths use,
+#  just without the parts of that chain that hang.
+# X-Env-Layer-Version: 1.0.0
+# METAEND
+---
+mmdebstrap:
+  packages:
+    - userconf-pi
+    - ssh-import-id
+  customize-hooks:
+    - |-
+      install -m 755 /home/imagegen/pinball/layer/pinball-apply-preseed.py $1/usr/local/sbin/pinball-apply-preseed.py
+    - |-
+      cat <<'EOSVC' > $1/etc/systemd/system/pinball-preseed.service
+      [Unit]
+      Description=Apply Raspberry Pi Imager rpi-preseed customisation
+      ConditionPathExists=/boot/firmware/rpi-preseed.toml
+      After=local-fs.target
+      Before=NetworkManager.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/local/sbin/pinball-apply-preseed.py
+
+      [Install]
+      WantedBy=multi-user.target
+      EOSVC
+      chroot $1 systemctl enable pinball-preseed.service
