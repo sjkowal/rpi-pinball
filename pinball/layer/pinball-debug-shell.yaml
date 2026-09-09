@@ -1,0 +1,19 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-debug-shell
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: Temporary debugging aid -- adds systemd.debug-shell=1
+#  to the kernel cmdline, giving a passwordless root shell on tty9
+#  (Alt+F9/Ctrl+Alt+F9 on the physical console) regardless of whatever
+#  else is happening on boot. Added specifically to get live diagnostics
+#  on why Raspberry Pi Imager's firstrun.sh hangs on this image (see
+#  docs/rpi-image-gen-notes.md) instead of continuing to guess from
+#  upstream source alone. Remove once that's root-caused and fixed --
+#  this is a real security exposure (unauthenticated root shell) not
+#  meant to ship in a distributed image.
+# X-Env-Layer-Version: 1.0.0
+# METAEND
+---
+mmdebstrap:
+  customize-hooks:
+    - |-
+      sed -i '$ s/$/ systemd.debug-shell=1/' $1/boot/firmware/cmdline.txt

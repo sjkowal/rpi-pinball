@@ -1,0 +1,72 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-resize-root
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: First-boot root filesystem auto-expand to fill the SD
+#  card/USB drive. No built-in rpi-image-gen v2.8.0 mechanism covers this for
+#  a plain flash-and-boot image (expand-to-fit only applies through the full
+#  fastboot/IDP/rpi-sb-provisioner pipeline, which this project doesn't use)
+#  — see docs/rpi-image-gen-notes.md.
+# X-Env-Layer-Version: 1.0.0
+# METAEND
+---
+mmdebstrap:
+  packages:
+    - raspi-config
+    - fdisk
+  customize-hooks:
+    - |-
+      # dosfstools/e2fsprogs (needed for resize2fs) already come from
+      # image-rpios's own built-in customize05-pkgs hook.
+      #
+      # Delegates the partition-table resize to Raspberry Pi's own
+      # `raspi-config --expand-rootfs`: fdisk deletes+recreates the root
+      # partition at the same start sector with no explicit end (fills the
+      # disk), then this triggers an immediate hard reboot (via sysrq, not
+      # systemctl reboot) so the kernel re-reads the new partition table
+      # right away. Device detection inside raspi-config itself is fully
+      # dynamic (findmnt/lsblk) — no hardcoded /dev/mmcblk0p2 assumptions,
+      # works on SD/USB/NVMe alike.
+      #
+      # We do NOT rely on raspi-config's own resize2fs_once follow-up
+      # mechanism (a self-registered init.d script meant to grow the
+      # filesystem on the second boot) — on real hardware that file came out
+      # empty and never ran, for reasons not fully pinned down. Our own
+      # trigger script calls `resize2fs` directly instead once the partition
+      # step already ran — a safe no-op once the filesystem already fills
+      # the partition.
+      cat <<'EOCHROOT' > $1/usr/local/bin/expand-rootfs.sh
+      #!/bin/bash
+      # Deliberately no `set -e`: raspi-config's own comment says fdisk's
+      # exit code will likely be non-zero here (it can't reload a mounted
+      # partition table), and the trailing whiptail call inside
+      # do_expand_rootfs() has no TTY to render into under systemd — both
+      # are expected to "fail" without actually meaning failure. We need
+      # touch/sync/reboot to run regardless.
+      if [ ! -f /boot/firstboot_resized ]; then
+          raspi-config --expand-rootfs
+          touch /boot/firstboot_resized
+          sync
+          echo b > /proc/sysrq-trigger
+      else
+          resize2fs "$(findmnt / -o source -n)"
+      fi
+      EOCHROOT
+      chroot $1 chmod +x /usr/local/bin/expand-rootfs.sh
+    - |-
+      cat <<'EOCHROOT' > $1/etc/systemd/system/expand-rootfs.service
+      [Unit]
+      Description=Expand root filesystem on first boot
+      After=local-fs.target
+      Before=getty.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/expand-rootfs.sh
+      RemainAfterExit=yes
+      User=root
+      Group=root
+
+      [Install]
+      WantedBy=multi-user.target
+      EOCHROOT
+      chroot $1 systemctl enable expand-rootfs

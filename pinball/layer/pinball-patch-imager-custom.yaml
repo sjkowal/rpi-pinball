@@ -1,0 +1,40 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-patch-imager-custom
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: Removes the `raspi-config nonint do_hostname` call from
+#  raspberrypi-sys-mods's installed imager_custom script -- real-hardware
+#  testing traced Raspberry Pi Imager's firstrun.sh hang to exactly this
+#  call (the very first thing firstrun.sh does, via `imager_custom
+#  set_hostname`), reproducible every time (confirmed by pulling the SD
+#  card repeatedly: firstrun.sh never reaches its own cleanup line, and
+#  none of the customisation -- not even hostname, the first step --  ever
+#  applies). imager_custom's set_hostname still writes /etc/hostname
+#  directly right after this line (unaffected by the removal), just skips
+#  whatever raspi-config itself is blocking on. Deliberately narrow: only
+#  this one line, in this one function -- everything else imager_custom
+#  does (enable_ssh, set_wlan, set_keymap, set_timezone) is left untouched,
+#  since there's no evidence yet those hang too, and set_wlan specifically
+#  is what correctly writes the NetworkManager .nmconnection profile our
+#  network stack expects (firstrun.sh's own wpa_supplicant.conf fallback,
+#  used only when imager_custom is entirely absent, would NOT be picked up
+#  by NetworkManager). See docs/rpi-image-gen-notes.md.
+#
+#  Known minor tradeoff: raspi-config's do_hostname also updates
+#  /etc/hosts' 127.0.1.1 line; skipping it means that line stays stale
+#  (still shows the old hostname) after a hostname change. Not fixed here
+#  -- cosmetic, doesn't block anything else in the customisation chain.
+# X-Env-Layer-Version: 1.0.0
+# METAEND
+---
+mmdebstrap:
+  packages:
+    - raspberrypi-sys-mods
+  customize-hooks:
+    - |-
+      install -m 755 /home/imagegen/pinball/layer/pinball-patch-imager-custom.py $1/tmp/pinball-patch-imager-custom.py
+      chroot $1 python3 /tmp/pinball-patch-imager-custom.py
+      chroot $1 rm -f /tmp/pinball-patch-imager-custom.py
+      if chroot $1 grep -qF 'raspi-config nonint do_hostname' /usr/lib/raspberrypi-sys-mods/imager_custom; then
+        echo pinball-patch-imager-custom: expected line still present after removal -- review this fix >&2
+        exit 1
+      fi

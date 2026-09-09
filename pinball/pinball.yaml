@@ -1,0 +1,168 @@
+# rpi-image-gen v2.8.0 config — replaces the old pinball.cfg + pinball.options
+# (INI/.options support was fully removed as of v2.8.0; YAML is the only
+# format now). See docs/rpi-image-gen-notes.md for the full v2.8.0 migration
+# writeup and why each layer below is included.
+
+device:
+  layer: rpi5
+  hostname: pinball
+  user1: pinball
+  # Deliberately no user1pass/user1passhash: per device-user-credentials.yaml,
+  # "if neither is set, the account will be locked" -- intentional for a
+  # publicly distributed image. This account exists only as a UID-1000
+  # placeholder for userconf-pi to rename+repassword at first boot from
+  # Raspberry Pi Imager's OS Customisation (custom.toml / firstrun.sh) -- see
+  # the [user]/[wlan] section below and docs/rpi-image-gen-notes.md. Until
+  # that runs, there is no way to log in (by design) -- to build a private
+  # image for yourself instead, set user1pass here (must satisfy the regex in
+  # layer/base/device-user-credentials.yaml) and skip Imager customization.
+  #
+  # nopasswd is safe to keep despite the locked password: sudo access is
+  # moot until the account has a real password anyway, and renaming via
+  # userconf preserves UID/GID/group membership, so nopasswd sudo carries
+  # over to whatever username the end user picks.
+  user1sudo: nopasswd
+
+image:
+  layer: image-rpios
+  boot_part_size: 100%
+  root_part_size: 100%
+  name: pinball
+  # The entire "by-slot" root-discovery mechanism (root=/dev/disk/by-slot/system
+  # on the kernel cmdline, resolved via a udev rule that needs a successful
+  # blkid probe of the ext4 filesystem) turned out to be fundamentally
+  # unreliable in this initramfs's minimal BusyBox blkid, regardless of ext4
+  # feature flags (see the fs.ext4_mkfs_args comment below — disabling
+  # metadata_csum/64bit did NOT fix it). Bypassing it for ROOT specifically:
+  # pin the MBR disk signature to a fixed, known value (instead of "random")
+  # so pinball/pre-image.sh can patch image-rpios's setup.sh to point root=
+  # and fstab's `/` line at a PARTUUID derived from it instead — the kernel
+  # resolves PARTUUID directly from the partition table at boot, no blkid or
+  # udev involved at all. BOOT's by-slot symlink is left alone since vfat
+  # blkid detection already works correctly (confirmed on real hardware).
+  # See docs/rpi-image-gen-notes.md for the full story.
+  disksig: "0x50494e42"
+
+# Two independent ext4-compatibility attempts, both found on real hardware —
+# see docs/rpi-image-gen-notes.md for the full story on each:
+#
+# 1. rpi5 pulls in the rpi-linux-2712 kernel, which has a 16K page size.
+#    image-rpios has an automatic trigger that sets the ext4 block size to
+#    match (IGconf_linux_page_size=16384), but the installed e2fsprogs
+#    (1.47.0) can't actually create an ext4 filesystem with 16384-byte
+#    blocks — mke2fs warns "16384-byte blocks too big for system (max
+#    4096)" and then fails outright ("Could not allocate block"). Override
+#    back to a normal 4096 block size (`-b 4096`). This part is a genuine fix.
+#
+# 2. image/mbr/simple_dual/mke2fs.conf enables `metadata_csum,64bit` by
+#    default for ext4. Initial theory: the minimal BusyBox `blkid` inside
+#    the initramfs couldn't identify the filesystem because of these
+#    features. Disabling them was WRONG/insufficient on its own — confirmed
+#    on real hardware that blkid still can't identify the filesystem at all
+#    even with both features off. Left this override in place anyway
+#    (harmless, standard compatibility practice, same pattern genimage's own
+#    template already uses for `large_file`/`huge_file`) but the actual fix
+#    for root discovery is the `image.disksig` PARTUUID bypass above, applied
+#    by pinball/pre-image.sh (a plain SRCROOT pre-image.sh hook, not a layer
+#    — it patches image-rpios's own setup.sh in place, so it needs no layer
+#    registration; rpi-image-gen's runner picks it up automatically).
+fs:
+  ext4_mkfs_args: "-F -b 4096 -O ^64bit,^metadata_csum"
+
+layer:
+  base: bookworm-minbase
+  # No standalone iwd layer -- pinball-networkmanager now uses
+  # NetworkManager's own default wifi backend (wpa_supplicant), not iwd
+  # (see that layer's file for why: a real NetworkManager+iwd PSK-handling
+  # bug found on real hardware). Keeping iwd installed alongside would mean
+  # two separate daemons both trying to manage wlan0's radio.
+  wifi_nm: pinball-networkmanager
+  wifi_reg: wireless-regulatory
+  # ABANDONED (2026-09-03), after five real-hardware test cycles: every
+  # attempt to make Raspberry Pi Imager's "systemd" init_format work
+  # (custom.toml via our own init= trigger, patching firstboot to
+  # neutralise Imager's own systemd.run=/kernel-command-line.target
+  # trigger, patching imager_custom's do_hostname call specifically) either
+  # crashed on boot 2 or left the system unhung but with nothing applied.
+  # The common thread: every one of those approaches depended on Imager's
+  # `systemd.run=/boot/firstrun.sh` + `systemd.unit=kernel-command-line.target`
+  # early-boot injection mechanism, which reliably hangs on this image for
+  # reasons never fully pinned down (no live process state was ever
+  # actually captured -- systemd.debug-shell's tty9 access was never
+  # confirmed to render). Switched entirely to `init_format: "rpi-preseed"`
+  # instead (see pinball-preseed.yaml) -- a genuinely different mechanism
+  # that writes a plain TOML file with NO cmdline.txt modification at all,
+  # consumed by a normal systemd oneshot service gated on the file's
+  # presence. See docs/rpi-image-gen-notes.md for the full multi-attempt
+  # history. Both files below are kept for reference, not deleted.
+  # imager_firstboot: pinball-imager-firstboot
+  # imager_custom_fix: pinball-patch-imager-custom
+  # REMOVED (2026-09-08): whole saga above confirmed working end-to-end on
+  # real hardware (hostname/user/SSH/WiFi all correct from a single Imager
+  # flash) -- this unauthenticated-root-shell debugging aid served its
+  # purpose (though in the end live SSH access, once boot itself stopped
+  # crashing, answered every remaining question -- this was never actually
+  # used to diagnose the final WiFi bug) and has no reason to ship. File
+  # kept for reference like everything else in this saga.
+  # debug_shell: pinball-debug-shell
+  preseed: pinball-preseed
+  locale: locale-base
+  locale_gen: locale-gen
+  mpf: pinball-mpf
+  resize: pinball-resize-root
+  bootdev_fix: pinball-bootdev-fix
+  # DISABLED AGAIN (2026-09-09): re-enabled on 2026-09-08 after the
+  # boot-crash/Imager-customisation saga (docs/rpi-image-gen-notes.md) was
+  # confirmed resolved, but the first image built with them back on (the
+  # v0.0.1-rc1 CI build) misbehaves and has not been diagnosed. Keep both
+  # off so kernel/systemd text and the tty1 login stay visible until the
+  # image is verified on hardware again; re-enable together with the
+  # `splash:` block below.
+  # splash_screen: rpi-splash-screen
+  # quiet_boot: pinball-quiet-boot
+
+# Boot splash: shows a fullscreen image (via the kernel's built-in
+# fullscreen_logo feature, applied as early in boot as the initramfs) in
+# place of kernel/systemd boot text. pinball-quiet-boot (above) covers the
+# rest -- systemd status lines and the tty1 login prompt, which the splash
+# mechanism itself doesn't suppress once early boot finishes.
+#
+# pinball/assets/splash.tga is currently a placeholder (solid background +
+# a plain rectangle), generated without any image tooling since neither the
+# build container nor this Mac had ImageMagick installed. Replace it with
+# real artwork before shipping -- constraints from the layer's own
+# validation (see rpi-image-gen/layer/rpi/device/splash-screen/*.adoc):
+# 24-bit TGA, uncompressed, <=1920x1080, fewer than 224 colours. Easiest
+# path if you have ImageMagick: `convert art.png -resize 1920x1080
+# -background black -gravity center -extent 1920x1080 -depth 8 -colors 224
+# -type truecolor splash.tga` (add `-flip`, or otherwise verify orientation
+# -- ImageMagick writes TGA bottom-up by default; this placeholder was
+# instead written with the top-left-origin descriptor bit set, so no flip
+# was needed for it specifically).
+# Commented out alongside the splash_screen layer above (config for an
+# absent layer is rejected); restore both together.
+#splash:
+#  image_path: /home/imagegen/pinball/assets/splash.tga
+
+# No build-time-baked WiFi network anymore (previously iwd.profile pointing
+# at the gitignored pinball/wifi/Space.psk -- now unused, safe to delete).
+# Two reasons: (1) this config is meant to produce a publicly distributable
+# image, and baking a personal home network's real SSID/password into a
+# binary .img that ships to other people would leak it, gitignored or not;
+# (2) it would silently stop working anyway now that network-manager-iwd is
+# in the layer list -- once NetworkManager owns wlan0, it manages
+# connections through its own .nmconnection profiles via D-Bus, not iwd's
+# native /var/lib/iwd/*.psk files. WiFi is now entirely end-user-supplied,
+# via Raspberry Pi Imager's OS Customisation (gear icon before writing),
+# consumed by pinball-preseed -- see that layer's file for the full story
+# of how we got here (five real-hardware test cycles fighting Imager's
+# "systemd" init_format before switching to "rpi-preseed") and
+# docs/rpi-image-gen-notes.md.
+
+locale:
+  timezone: America/Chicago
+
+packages:
+  - git
+  - htop
+  - vim

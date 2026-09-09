@@ -1,0 +1,30 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-quiet-boot
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: Hides console/kernel/systemd text so only the
+#  rpi-splash-screen image is visible from power-on until mpf-mc takes over
+#  the display (or the user SSHes in) -- see docs/rpi-image-gen-notes.md.
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Requires: rpi-boot-firmware
+# METAEND
+---
+mmdebstrap:
+  customize-hooks:
+    - |-
+      # rpi-splash-screen's own fullscreen_logo kernel feature already
+      # suppresses console text while the logo is active during early
+      # boot/initramfs, but does nothing once systemd starts printing unit
+      # status lines to the console -- belt-and-braces insurance for that.
+      # Appending (not replacing) since rpi-splash-screen's own
+      # configure-splash tool also edits this same file; order between the
+      # two layers' hooks isn't guaranteed, but a pure end-of-line append
+      # is safe regardless of which runs first.
+      sed -i '$ s/$/ quiet loglevel=0 systemd.show_status=0/' $1/boot/firmware/cmdline.txt
+    - |-
+      # Without this, agetty's login prompt overwrites the splash image on
+      # tty1 (the HDMI console) the moment multi-user.target is reached --
+      # the splash mechanism only guarantees coverage through early boot,
+      # not indefinitely. Masking (not just disabling) prevents systemd
+      # from ever starting it, statically-enabled symlink included. SSH
+      # still works normally; this only affects the local HDMI console.
+      chroot $1 systemctl mask getty@tty1.service

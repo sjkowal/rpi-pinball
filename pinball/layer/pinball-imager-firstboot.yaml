@@ -1,0 +1,95 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-imager-firstboot
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: Enables Raspberry Pi Imager's custom.toml OS
+#  Customisation flow (WiFi, user/password, hostname, SSH) on first boot --
+#  see docs/rpi-image-gen-notes.md. raspberrypi-sys-mods (declared as this
+#  layer's own package, not top-level packages: -- see the 2026-09-02 note
+#  below) provides the /usr/lib/raspberrypi-sys-mods/firstboot script and
+#  its custom.toml-reading logic, but that script is only ever invoked if
+#  the kernel cmdline requests it -- installing the package alone does NOT
+#  wire this up, official Raspberry Pi OS images bake this cmdline
+#  parameter in at image-creation time and we need to do the same. Also
+#  neutralises Raspberry Pi Imager's OWN, separate `systemd.run=
+#  /boot/firstrun.sh` customisation trigger -- real hardware testing found
+#  that mechanism hangs on this image (inside raspi-config's non-interactive
+#  do_hostname path, cause not fully pinned down) when it gets a chance to
+#  run, dropping the system into a bare kernel-command-line.target with no
+#  display or network. This layer's own custom.toml pipeline is the one
+#  that's confirmed working on real hardware; Imager's redundant one just
+#  needs to never get a chance to run at all.
+# X-Env-Layer-Version: 1.2.0
+# METAEND
+---
+mmdebstrap:
+  packages:
+    # Moved here from top-level packages: (2026-09-02) -- top-level
+    # packages: are installed by a separate, later numbered bdebstrap hook
+    # that runs AFTER every layer's own customize-hooks, not before. Our
+    # second customize-hook below patches this package's installed file at
+    # build time, so it needs to be a package THIS layer declares, to
+    # guarantee it's installed (during the shared "essential" phase, before
+    # any customize-hooks at all) before that hook runs. Confirmed by a
+    # real build failure: `FileNotFoundError: .../firstboot` when it was a
+    # top-level package.
+    - raspberrypi-sys-mods
+  customize-hooks:
+    - |-
+      # firstboot no-ops silently (and self-removes this cmdline param) if
+      # /boot/firmware/custom.toml doesn't exist, so this is safe to bake in
+      # unconditionally -- flashing without using Imager's customisation
+      # dialog just means firstboot runs once, finds nothing to do, and
+      # strips itself from cmdline.txt with no visible effect.
+      #
+      # One real interaction worth knowing about: when custom.toml DOES
+      # exist, firstboot runs as an early `init=` replacement (before our
+      # own splash/quiet-boot mechanisms take effect) and shows a brief
+      # whiptail text dialog while applying settings, then reboots -- so the
+      # very first boot after using Imager's customisation will show text
+      # for a few seconds despite pinball-quiet-boot/rpi-splash-screen.
+      # Every boot after that is back to fully quiet+splashed. This is
+      # standard behaviour on official Raspberry Pi OS images too, not a
+      # bug introduced here.
+      sed -i '$ s/$/ init=\/usr\/lib\/raspberrypi-sys-mods\/firstboot/' $1/boot/firmware/cmdline.txt
+    - |-
+      # Patch the INSTALLED firstboot script (not our own copy of anything --
+      # this is raspberrypi-sys-mods's own file) so that, at the exact point
+      # it already cleans its own `init=` parameter out of cmdline.txt (right
+      # before it calls main() and reboots), it ALSO strips Raspberry Pi
+      # Imager's separate `systemd.run=`/`systemd.run_success_action=`/
+      # `systemd.unit=kernel-command-line.target` parameters -- the ones
+      # Imager writes for `init_format: "systemd"`, which our own `init=`
+      # pre-empts on boot 1 (so systemd never processes them, and they're
+      # never self-removed) and which a real systemd would otherwise honour
+      # for the first time on boot 2, hanging as described above. Doing this
+      # here -- inline in the SAME script, at the SAME point it already
+      # rewrites cmdline.txt -- guarantees it runs before firstboot's own
+      # reboot, regardless of whatever else main() does.
+      #
+      # The patch logic lives in pinball-patch-firstboot.py (this layer's own
+      # directory), installed and run directly rather than embedded as a
+      # heredoc here -- a real build failure showed the heredoc form gets
+      # corrupted somewhere in bdebstrap's own shell-quoting of the whole
+      # hook body (the script's necessary embedded single-quotes, needed to
+      # represent the sed syntax it's matching, apparently don't survive
+      # that trip intact) -- the exact same class of quoting bug hit earlier
+      # in this project's Dockerfile (see docs/rpi-image-gen-notes.md).
+      # Installing the file directly sidesteps it entirely: verified working
+      # by testing this exact script against a real extracted copy of
+      # firstboot before adopting this approach.
+      install -m 755 /home/imagegen/pinball/layer/pinball-patch-firstboot.py $1/tmp/pinball-patch-firstboot.py
+      chroot $1 python3 /tmp/pinball-patch-firstboot.py
+      chroot $1 rm -f /tmp/pinball-patch-firstboot.py
+      # -F (fixed string, no regex): the insert itself contains a literal
+      # backslash-dot (systemd\.unit=..., escaping the dot for sed's own
+      # regex) -- an earlier version of this check used a bare regex
+      # pattern assuming a single character between "systemd" and "unit",
+      # which silently never matched that backslash+dot pair and made this
+      # check fail even when the patch had applied correctly. Confirmed via
+      # a real build: python3 exited 0 and the file was correctly patched,
+      # yet this check still failed -- traced to the check itself, not the
+      # patch, by diffing before/after copies of the real file.
+      if ! chroot $1 grep -qF 'kernel-command-line' /usr/lib/raspberrypi-sys-mods/firstboot; then
+        echo pinball-imager-firstboot: expected patch not found in firstboot after insertion -- review this fix >&2
+        exit 1
+      fi
