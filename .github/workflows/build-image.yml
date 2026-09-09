@@ -3,6 +3,9 @@ name: Build image
 on:
   push:
     tags: ['v*']
+    # TEMPORARY: lets the workflow run (and so register itself with GitHub)
+    # from this branch before it exists on main. Remove after merging.
+    branches: ['devops/github_build']
   workflow_dispatch:
 
 permissions:
