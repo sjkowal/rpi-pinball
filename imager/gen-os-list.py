@@ -11,8 +11,10 @@ by the local workflow (``imager-repo.sh``) and the hosted one
 
 Subcommands
   entry   Hash one built image (raw .img, optionally its .img.xz) and emit a
-          single os_list entry. CI stores this as a per-release
-          ``pinball-<tag>.manifest.json`` sidecar asset.
+          complete single-image repository document (imager.devices block +
+          os_list with one entry). CI stores this as a per-release
+          ``pinball-<tag>.manifest.json`` asset, so each release is directly
+          usable with ``rpi-imager --repo <asset url>`` on its own.
   repo    Combine any number of entry files into a complete os_list.json
           (newest release first), setting the icon URL.
   local   ``entry`` + ``repo`` in one shot with a ``file://`` URL, for
@@ -105,8 +107,11 @@ def write_json(obj, out):
 
 
 def cmd_entry(a):
-    write_json(build_entry(a.img, a.url, a.xz, a.name, a.description,
-                           a.release_date, a.website), a.output)
+    entry = build_entry(a.img, a.url, a.xz, a.name, a.description,
+                        a.release_date, a.website)
+    # Always a full document, never a bare entry: without the imager.devices
+    # block Imager's hardware filter drops the entry and the list is empty.
+    write_json(build_repo([entry]), a.output)
 
 
 def cmd_repo(a):
@@ -133,7 +138,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    e = sub.add_parser("entry", help="emit one os_list entry for a built image")
+    e = sub.add_parser("entry", help="emit a one-image repository JSON for a built image")
     e.add_argument("--img", required=True, help="raw (uncompressed) .img")
     e.add_argument("--xz", help="compressed .img.xz actually served at --url")
     e.add_argument("--url", required=True, help="download URL for the image")

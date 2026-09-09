@@ -14,7 +14,13 @@ rpi-imager --repo https://sjkowal.github.io/rpi-pinball/os_list.json
 
 Or in the app: **App Options → Content Repository → EDIT**, paste that URL, **APPLY & RESTART**. Then choose **Raspberry Pi 5** and pick the **Pinball Machine vX.Y.Z** entry (not "Use custom") — that is what makes the OS Customisation step (hostname, user/password, WiFi, SSH) appear. Imager forgets a custom repository on restart, so re-select it each session. Newest release is listed first.
 
-Each release carries `pinball-<tag>.img.xz` (the image, xz-compressed), a `.sha256` for it, and `pinball-<tag>.manifest.json` (the Imager metadata the repository is generated from). You can also download the `.img.xz` directly and use Imager's "Use custom", but then the Customisation step is skipped.
+Each release carries `pinball-<tag>.img.xz` (the image, xz-compressed), a `.sha256` for it, and `pinball-<tag>.manifest.json`, a complete single-image Imager repository (the hosted `os_list.json` is merged from these). So any one release, prereleases included, can be used on its own without Pages:
+
+```bash
+rpi-imager --repo https://github.com/sjkowal/rpi-pinball/releases/download/v0.0.1-rc1/pinball-v0.0.1-rc1.manifest.json
+```
+
+You can also download the `.img.xz` directly and use Imager's "Use custom", but then the Customisation step is skipped.
 
 ## Build locally
 
