@@ -111,13 +111,15 @@ layer:
   mpf: pinball-mpf
   resize: pinball-resize-root
   bootdev_fix: pinball-bootdev-fix
-  # RE-ENABLED (2026-09-08): disabled since 2026-09-01 for console
-  # visibility during the boot-crash/Imager-customisation saga documented
-  # at length in docs/rpi-image-gen-notes.md. That whole saga is now
-  # confirmed resolved end-to-end on real hardware -- the boot sequence
-  # these two layers hide text from is proven working, so re-enabling.
-  splash_screen: rpi-splash-screen
-  quiet_boot: pinball-quiet-boot
+  # DISABLED AGAIN (2026-09-09): re-enabled on 2026-09-08 after the
+  # boot-crash/Imager-customisation saga (docs/rpi-image-gen-notes.md) was
+  # confirmed resolved, but the first image built with them back on (the
+  # v0.0.1-rc1 CI build) misbehaves and has not been diagnosed. Keep both
+  # off so kernel/systemd text and the tty1 login stay visible until the
+  # image is verified on hardware again; re-enable together with the
+  # `splash:` block below.
+  # splash_screen: rpi-splash-screen
+  # quiet_boot: pinball-quiet-boot
 
 # Boot splash: shows a fullscreen image (via the kernel's built-in
 # fullscreen_logo feature, applied as early in boot as the initramfs) in
@@ -137,8 +139,10 @@ layer:
 # -- ImageMagick writes TGA bottom-up by default; this placeholder was
 # instead written with the top-left-origin descriptor bit set, so no flip
 # was needed for it specifically).
-splash:
-  image_path: /home/imagegen/pinball/assets/splash.tga
+# Commented out alongside the splash_screen layer above (config for an
+# absent layer is rejected); restore both together.
+#splash:
+#  image_path: /home/imagegen/pinball/assets/splash.tga
 
 # No build-time-baked WiFi network anymore (previously iwd.profile pointing
 # at the gitignored pinball/wifi/Space.psk -- now unused, safe to delete).
