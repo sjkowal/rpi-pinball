@@ -1,0 +1,70 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-readonly-root
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: Runtime half of the read-only OS design (the build-time
+#  half is the pinball-image-rpios image layout in pinball/image/, which
+#  writes the read-only fstab, adds the DATA partition and relocates /var
+#  into it). Installs pinball-firstboot.service, which on the first boot
+#  grows the DATA partition to fill the device (online, no reboot --
+#  replaces the old pinball-resize-root layer), migrates the home directory
+#  from the root partition into /data (see the script for why), applies any
+#  deferred Raspberry Pi Imager rpi-preseed customisation (absorbs the old
+#  pinball-preseed layer), generates SSH host keys and commits the
+#  machine-id -- all while / is temporarily read-write. Also installs the
+#  pinball-rw / pinball-ro maintenance-mode helpers. See
+#  docs/rpi-image-gen-notes.md.
+# X-Env-Layer-Version: 1.0.0
+# METAEND
+---
+mmdebstrap:
+  packages:
+    # growpart, used by pinball-firstboot.sh to grow the DATA partition
+    # in place (sfdisk + partx under the hood, works on a mounted partition).
+    - cloud-guest-utils
+    - fdisk
+    - e2fsprogs
+    # Consumers for the rpi-preseed TOML (userconf renames the UID-1000
+    # placeholder account; ssh-import-id for the [ssh] section).
+    - userconf-pi
+    - ssh-import-id
+  customize-hooks:
+    - |-
+      install -m 755 /home/imagegen/pinball/layer/pinball-apply-preseed.py $1/usr/local/sbin/pinball-apply-preseed.py
+      install -m 755 /home/imagegen/pinball/layer/pinball-firstboot.sh $1/usr/local/sbin/pinball-firstboot.sh
+      install -m 755 /home/imagegen/pinball/layer/pinball-rw $1/usr/local/sbin/pinball-rw
+      install -m 755 /home/imagegen/pinball/layer/pinball-ro $1/usr/local/sbin/pinball-ro
+    - |-
+      # After local-fs.target so /data and the /var, /home bind mounts are
+      # up (the marker path is on /data via /var). Before anything that
+      # would start using the identity this script finalises: network
+      # (NetworkManager reads the preseed-written wifi profile), sshd and its
+      # host keys, logins. (Not timesyncd: it orders itself Before=
+      # sysinit.target, which this unit is implicitly After=, so naming it
+      # here would be an ordering cycle.)
+      cat <<'EOSVC' > $1/etc/systemd/system/pinball-firstboot.service
+      [Unit]
+      Description=Pinball first-boot setup (grow /data, migrate /home, apply Imager preseed)
+      ConditionPathExists=!/var/lib/pinball/firstboot-done
+      After=local-fs.target systemd-remount-fs.service
+      Before=NetworkManager.service ssh.service ssh-hostkeys-generate.service
+      Before=systemd-user-sessions.service getty.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/local/sbin/pinball-firstboot.sh
+
+      [Install]
+      WantedBy=multi-user.target
+      EOSVC
+      chroot $1 systemctl enable pinball-firstboot.service
+    - |-
+      # rpi-eeprom-update.service stages bootloader updates into
+      # /boot/firmware at boot, which is now read-only. Nothing on a pinball
+      # machine wants a surprise EEPROM update anyway; run
+      # `sudo pinball-rw && sudo rpi-eeprom-update -a` by hand if ever needed.
+      if [ -e $1/lib/systemd/system/rpi-eeprom-update.service ] || [ -e $1/usr/lib/systemd/system/rpi-eeprom-update.service ]; then
+        chroot $1 systemctl disable rpi-eeprom-update.service
+      else
+        echo "pinball-readonly-root: rpi-eeprom-update.service not found, nothing to disable" >&2
+      fi

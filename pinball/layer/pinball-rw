@@ -1,0 +1,9 @@
+#!/bin/sh
+# Maintenance mode: make / and /boot/firmware writable (until reboot or
+# `pinball-ro`) for apt, pip installs into /opt/mpf/venv, nmcli, editing
+# /boot/firmware/*.txt, etc. /home and /var are always writable.
+set -e
+[ "$(id -u)" -eq 0 ] || { echo "run as root: sudo pinball-rw" >&2; exit 1; }
+mount -o remount,rw /
+mount -o remount,rw /boot/firmware
+echo "/ and /boot/firmware are now read-write. Run 'sudo pinball-ro' (or reboot) when done."

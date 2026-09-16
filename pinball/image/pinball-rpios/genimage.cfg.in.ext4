@@ -1,0 +1,88 @@
+image <IMAGE_NAME>.<IMAGE_SUFFIX>.sparse {
+   android-sparse {
+      image = <IMAGE_NAME>.<IMAGE_SUFFIX>
+   }
+}
+
+image boot.vfat.sparse {
+   android-sparse {
+      image = boot.vfat
+   }
+}
+
+image root.ext4.sparse {
+   android-sparse {
+      image = root.ext4
+   }
+}
+
+image data.ext4.sparse {
+   android-sparse {
+      image = data.ext4
+   }
+}
+
+image <IMAGE_NAME>.<IMAGE_SUFFIX> {
+   hdimage {
+      align = 8M
+      partition-table-type = "mbr"
+      fill = true
+      disk-signature = "<DISK_SIGNATURE>"
+   }
+
+   partition boot {
+      in-partition-table = true
+      partition-type = 0xC
+      image = boot.vfat
+      bootable = true
+   }
+
+   partition root {
+      in-partition-table = true
+      partition-type = 0x83
+      image = root.ext4
+   }
+
+   # Last partition on purpose: pinball-firstboot.sh grows it (growpart +
+   # resize2fs, online) to fill whatever card/drive the image was written to.
+   partition data {
+      in-partition-table = true
+      partition-type = 0x83
+      image = data.ext4
+   }
+}
+
+image boot.vfat {
+   vfat {
+      label = "BOOT"
+      extraargs = "<VFAT_EXTRAARGS>"
+   }
+   size = <FW_SIZE>
+   mountpoint = "/boot/firmware"
+   exec-pre = "<SETUP> BOOT"
+}
+
+image root.ext4 {
+   ext4 {
+      label = "ROOT"
+      use-mke2fs = true
+      mke2fs-conf = <MKE2FS_CONF>
+      extraargs = "<MKE2FS_EXTRAARGS>"
+   }
+   size = <ROOT_SIZE>
+   mountpoint = "/"
+   exec-pre = "<SETUP> ROOT"
+}
+
+# genimage moves everything under rootfs/data into this image and leaves an
+# empty /data mountpoint in root.ext4 (same mechanism as /boot/firmware).
+image data.ext4 {
+   ext4 {
+      label = "DATA"
+      use-mke2fs = true
+      mke2fs-conf = <MKE2FS_CONF>
+      extraargs = "<MKE2FS_DATA_EXTRAARGS>"
+   }
+   size = <DATA_SIZE>
+   mountpoint = "/data"
+}

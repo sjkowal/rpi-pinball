@@ -59,10 +59,10 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner. Everything here 
 ## What's on the image
 
 - MPF and mpf-mc installed into a dedicated venv at `/opt/mpf/venv` (`pinball/layer/pinball-mpf.yaml`).
-- SSH enabled; WiFi via NetworkManager (`pinball-networkmanager`); hostname, user, password, WiFi credentials and SSH keys all come from Imager's OS Customisation, consumed by `pinball-preseed` (`init_format: rpi-preseed`).
+- SSH enabled; WiFi via NetworkManager (`pinball-networkmanager`); hostname, user, password, WiFi credentials and SSH keys all come from Imager's OS Customisation (`init_format: rpi-preseed`; Imager applies most of it at flash time, anything deferred to boot is consumed by `pinball-readonly-root`'s first-boot script).
 - Working DNS resolution.
 - P-ROC/P3-ROC hardware support: `libpinproc` (built from the `dev` branch) installed system-wide, the `pinproc` Python extension (`pypinproc`) installed into the MPF venv, and udev rules so the boards are accessible without root.
-- Root filesystem auto-expands to fill your SD card/USB drive on first boot (`pinball-resize-root`) — **this triggers one automatic reboot right after first boot**, expected, not a crash.
+- **Read-only OS.** `/` and `/boot/firmware` are mounted read-only so a power cut mid-game can't corrupt the OS. A third `DATA` partition (`/data`) holds everything that changes at runtime — `/home` (your machine folder, MPF data and logs) and `/var` (journal, NetworkManager state, apt/dpkg databases) are bind-mounted from it, `/tmp` is a tmpfs. On first boot `pinball-firstboot.service` grows `DATA` to fill your SD card/USB drive in place (no reboot), generates SSH host keys and commits the machine-id; `journalctl -u pinball-firstboot` shows what it did. Layout: `pinball/image/pinball-rpios/`, runtime: `pinball/layer/pinball-readonly-root.yaml`.
 - Boot splash (`rpi-splash-screen`, image from `pinball/assets/splash.tga`, currently a placeholder) and quiet boot (`pinball-quiet-boot`).
 - Development conveniences — `git`, `htop`, `vim` (`packages:` in `pinball/pinball.yaml`) — **temporary**.
 
@@ -76,6 +76,19 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner. Everything here 
   ```
   `mpf both` runs the core engine and media controller together — that's what you want for a full running machine. `mpf` alone only runs the core (no display), `mpf mc` alone only runs the media controller. `machine_path` is optional if you're already `cd`'d into a folder with a `config/` subfolder in it. (`mpf`/`mpf-mc` are on `$PATH` via `/etc/profile.d/mpf-path.sh`.)
 - No systemd service — MPF is started manually while developing, not on boot.
+
+## Maintenance mode (changing the OS)
+
+Anything under `/home` or `/var` is always writable. To change the OS itself — `apt`, `pip install` into `/opt/mpf/venv`, adding a WiFi network with `nmcli`, editing `/boot/firmware/config.txt` or `cmdline.txt` — make the root and boot partitions writable first, then put them back:
+
+```bash
+sudo pinball-rw          # / and /boot/firmware read-write
+sudo apt update && sudo apt upgrade
+pip install <package>    # into /opt/mpf/venv
+sudo pinball-ro          # back to read-only (or just reboot)
+```
+
+The root partition is a fixed 4 GB with ~2 GB free for this; it does not grow with the card.
 
 ## Before flashing
 
