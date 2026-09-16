@@ -61,7 +61,7 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner. Everything here 
 - MPF and mpf-mc installed into a dedicated venv at `/opt/mpf/venv` (`pinball/layer/pinball-mpf.yaml`).
 - SSH enabled; WiFi via NetworkManager (`pinball-networkmanager`); hostname, user, password, WiFi credentials and SSH keys all come from Imager's OS Customisation, consumed by `pinball-preseed` (`init_format: rpi-preseed`).
 - Working DNS resolution.
-- P-ROC/P3-ROC build dependencies (`libftdi1-2`/`libftdi1-dev`, etc.) installed.
+- P-ROC/P3-ROC hardware support: `libpinproc` (built from the `dev` branch) installed system-wide, the `pinproc` Python extension (`pypinproc`) installed into the MPF venv, and udev rules so the boards are accessible without root.
 - Root filesystem auto-expands to fill your SD card/USB drive on first boot (`pinball-resize-root`) — **this triggers one automatic reboot right after first boot**, expected, not a crash.
 - Boot splash (`rpi-splash-screen`, image from `pinball/assets/splash.tga`, currently a placeholder) and quiet boot (`pinball-quiet-boot`).
 - Development conveniences — `git`, `htop`, `vim` (`packages:` in `pinball/pinball.yaml`) — **temporary**.

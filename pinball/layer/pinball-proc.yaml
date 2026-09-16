@@ -1,0 +1,89 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-proc
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: Multimorphic P-ROC / P3-ROC hardware support for MPF:
+#  builds libpinproc (the C++ USB/FTDI driver library) from source and
+#  installs the pypinproc Python extension (`import pinproc`) into the MPF
+#  venv, plus the udev rules that make the boards accessible without root.
+#
+#  Why this exists: pinball-mpf alone only ships MPF's *platform code* for
+#  P-ROC (mpf/platforms/p_roc*.py). On Linux that code does a bare
+#  `import pinproc` and, unlike macOS/Windows where MPF bundles prebuilt
+#  binaries under mpf/platforms/pinproc/, has no fallback -- so without this
+#  layer MPF silently disables the P-ROC platform at startup. Neither
+#  libpinproc nor pypinproc is packaged in Debian or on PyPI for arm64, so
+#  both are built from source here, following the steps in MPF's own
+#  mpf-debian-installer `install-proc` script -- minus its from-source
+#  libusb/libftdi builds, which Debian's libftdi1-dev/libusb-dev already
+#  cover (libpinproc's dev branch includes <libftdi1/ftdi.h> and links
+#  ftdi1, i.e. the same libftdi 1.x API Debian ships).
+#
+#  libpinproc's CMakeLists links `usb` (the legacy libusb-0.1 name) as
+#  well as `ftdi1`, and pypinproc's setup.py pkg-configs `libusb` too --
+#  neither actually calls the 0.1 API, but the link line demands it, so
+#  Debian's libusb-dev (the libusb-compat-0.1 shim, distinct from
+#  libusb-1.0-0-dev) is installed to satisfy it rather than patching either
+#  upstream build.
+#
+#  The `dev` branch of libpinproc is used deliberately (P3-ROC needs it;
+#  the installer script does the same) and it is also the only branch
+#  whose include path matches Debian's libftdi1 layout.
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Requires: pinball-mpf
+# METAEND
+---
+mmdebstrap:
+  packages:
+    - git
+    - ca-certificates
+    - cmake
+    - build-essential
+    - pkg-config
+    - libudev-dev
+    - libusb-dev
+    - libusb-1.0-0-dev
+    - libftdi1-dev
+  customize-hooks:
+    - |-
+      # libpinproc: shared lib + headers + pkg-config file into /usr/local
+      # (already on Debian's default ld.so and pkg-config search paths).
+      # Built in the chroot so the result is a native aarch64 binary linked
+      # against the exact libftdi1/libusb the image ships. (Upstream's
+      # CMakeLists also builds a pinprocfw firmware tool but has no install
+      # rule for it, so it is not shipped -- verified, not an oversight.)
+      chroot $1 bash -e -c '
+        rm -rf /tmp/libpinproc
+        git clone --depth 1 --branch dev https://github.com/missionpinball/libpinproc.git /tmp/libpinproc
+        mkdir -p /tmp/libpinproc/bin
+        cd /tmp/libpinproc/bin
+        cmake -DBUILD_SHARED_LIBS=ON ..
+        make -j"$(nproc)"
+        make install
+        ldconfig
+        rm -rf /tmp/libpinproc
+      '
+    - |-
+      # pypinproc: the `pinproc` C extension, installed into the MPF venv
+      # (not system python, unlike the installer script) so `import pinproc`
+      # resolves for the same interpreter that runs `mpf`. Its setup.py uses
+      # pkg-config to find pinproc/libftdi1/libusb, so it needs libpinproc
+      # installed first (previous hook).
+      chroot $1 bash -e -c '
+        rm -rf /tmp/pypinproc
+        git clone --depth 1 https://github.com/missionpinball/pypinproc.git /tmp/pypinproc
+        /opt/mpf/venv/bin/pip install /tmp/pypinproc
+        rm -rf /tmp/pypinproc
+        /opt/mpf/venv/bin/python -c "import pinproc; print(\"pinproc extension OK:\", pinproc.__file__)"
+      '
+    - |-
+      # udev rules from MPF's installer: FTDI VID 0403, PID 6001 (P-ROC) and
+      # 6015 (P3-ROC), world-readable so MPF can open the board as the
+      # login user. The user is also in plugdev via device-user-credentials'
+      # defaults.
+      install -m 644 /home/imagegen/pinball/assets/50-P-ROC.rules $1/etc/udev/rules.d/50-P-ROC.rules
+      install -m 644 /home/imagegen/pinball/assets/51-P3-ROC.rules $1/etc/udev/rules.d/51-P3-ROC.rules
+    - |-
+      # pinball-mpf chowns /opt/mpf to the login user so they can pip into
+      # the venv later; pip install above ran as root and left root-owned
+      # files behind, so redo it.
+      chroot $1 chown -R "$IGconf_device_user1:$IGconf_device_user1" /opt/mpf

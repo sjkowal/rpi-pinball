@@ -109,6 +109,11 @@ layer:
   locale: locale-base
   locale_gen: locale-gen
   mpf: pinball-mpf
+  # Builds libpinproc + pypinproc from source into the MPF venv. Declares
+  # Requires: pinball-mpf so its hooks run after the venv exists (rpi-image-gen
+  # derives build order from Requires). Without it MPF silently disables the
+  # P-ROC platform on Linux -- see that layer's header.
+  proc: pinball-proc
   resize: pinball-resize-root
   bootdev_fix: pinball-bootdev-fix
   # DISABLED AGAIN (2026-09-09): re-enabled on 2026-09-08 after the
