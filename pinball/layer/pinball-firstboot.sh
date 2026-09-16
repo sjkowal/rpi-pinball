@@ -96,9 +96,13 @@ fi
 #    generated a transient one and bind-mounted it over the (read-only) file.
 #    Commit it now that / is writable, so the id is stable across reboots
 #    (DHCP DUIDs, journal directories, etc.).
+#    systemd 252 (Bookworm) only has `systemd-machine-id-setup --commit`;
+#    the standalone systemd-machine-id-commit binary is gone (confirmed on
+#    hardware: "command not found").
 if mountpoint -q /etc/machine-id; then
    log "committing transient machine-id"
-   systemd-machine-id-commit || warn "systemd-machine-id-commit failed"
+   systemd-machine-id-setup --commit || warn "systemd-machine-id-setup --commit failed"
+   mountpoint -q /etc/machine-id && warn "/etc/machine-id is still a transient mount"
 fi
 
 # 6. Done: mark, flush, and go read-only again.
