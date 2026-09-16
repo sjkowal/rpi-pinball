@@ -18,7 +18,7 @@ The output image lands in `pinball/deploy/pinball-<timestamp>.img`. Flash it wit
 - SSH installed and enabled (`customize08-ssh`), autologin on the console as the `pinball` user.
 - WiFi configured and connected automatically at boot (`customize09-wifi`) — see "Before flashing" below, you must supply your own credentials.
 - Working DNS resolution (`customize95-dns`) — without this, hostnames don't resolve at all (`ping github.com` → "Temporary failure in name resolution") even though the network itself works fine, since the image otherwise ships with a leftover Docker-build-time `/etc/resolv.conf` and no `systemd-resolved` to fix it via DHCP.
-- P-ROC/P3-ROC build dependencies (`libftdi1-2`/`libftdi1-dev`, etc.) installed.
+- P-ROC/P3-ROC hardware support: `libpinproc` (built from the `dev` branch) installed system-wide, the `pinproc` Python extension (`pypinproc`) installed into the MPF venv, and udev rules so the boards are accessible without root.
 - Root filesystem auto-expands to fill your SD card/USB drive on first boot (`customize06-resize-root`) — **this triggers one automatic reboot right after first boot**, expected, not a crash. Without this the root partition is built at exactly its build-time size with zero free space, so nothing (not even `apt install git`) could be installed after flashing.
 - Development conveniences — `git`, `htop`, `vim` (`customize90-dev-tools`) — **temporary**. Nothing else in this repo depends on these; delete that file and rebuild once they're no longer needed.
 
