@@ -1,0 +1,13 @@
+#!/bin/sh
+# Leave maintenance mode: flush and remount / and /boot/firmware read-only.
+[ "$(id -u)" -eq 0 ] || { echo "run as root: sudo pinball-ro" >&2; exit 1; }
+sync
+rc=0
+mount -o remount,ro /boot/firmware || rc=1
+mount -o remount,ro / || rc=1
+if [ "$rc" -ne 0 ]; then
+   echo "remount failed: something still has a file open for writing on / or /boot/firmware." >&2
+   echo "Close it and retry, or reboot (fstab mounts both read-only at boot)." >&2
+   exit 1
+fi
+echo "/ and /boot/firmware are read-only again."
