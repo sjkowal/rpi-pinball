@@ -1,0 +1,111 @@
+name: Build image
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Native arm64: rpi-image-gen only formally supports arm64 Debian hosts,
+    # and our Dockerfile's amd64 path is unverified. 4 vCPU / 16 GB / 14 GB
+    # disk on public repos, free and unmetered.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/.ghcup /usr/share/swift /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af || true
+          df -h /
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            TAG="dev-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Building $TAG"
+
+      # An unauthenticated root shell (systemd.debug-shell=1) must never ship
+      # in a public, non-prerelease image. Prerelease tags (v1.0.0-rc1) are
+      # allowed through so the release path can be exercised while testing.
+      - name: Release guard
+        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+        run: |
+          if grep -qE '^[[:space:]]*debug_shell:' pinball/pinball.yaml; then
+            echo "::error::pinball/pinball.yaml still enables the pinball-debug-shell layer; comment it out before tagging a release (or use a -rc prerelease tag)."
+            exit 1
+          fi
+
+      - name: Build image (same script as local)
+        env:
+          RPI_IMAGE_OUT_DIR: ${{ runner.temp }}/out
+          RPI_IMAGE_OUT_NAME: pinball-${{ steps.ver.outputs.tag }}.img
+        run: ./build.sh
+
+      - name: Compress, hash, write manifest
+        working-directory: ${{ runner.temp }}/out
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+          XZ_LEVEL: ${{ vars.XZ_LEVEL || '-6' }}
+        run: |
+          df -h /
+          ls -la
+          xz -T0 "$XZ_LEVEL" -k -v "pinball-$TAG.img"
+          sha256sum "pinball-$TAG.img.xz" > "pinball-$TAG.img.xz.sha256"
+          python3 "$GITHUB_WORKSPACE/imager/gen-os-list.py" entry \
+            --img "pinball-$TAG.img" --xz "pinball-$TAG.img.xz" \
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/pinball-$TAG.img.xz" \
+            --name "Pinball Machine $TAG" \
+            --release-date "$(date -u +%Y-%m-%d)" \
+            -o "pinball-$TAG.manifest.json"
+          rm "pinball-$TAG.img"
+          ls -la
+          cat "pinball-$TAG.manifest.json"
+          df -h /
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ runner.temp }}/out/pinball-*
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+
+      # Anything that is not a tag (manual dispatch, branch push) is a test
+      # build: keep the output as a short-lived artifact instead of a release.
+      - name: Upload test-build artifact
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinball-image-${{ steps.ver.outputs.tag }}
+          path: ${{ runner.temp }}/out
+          retention-days: 1
+
+  # Releases created with GITHUB_TOKEN do not fire `release:` events, so the
+  # Imager repo must be regenerated explicitly here.
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    uses: ./.github/workflows/publish-imager-repo.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

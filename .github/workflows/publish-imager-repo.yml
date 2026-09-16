@@ -1,0 +1,68 @@
+name: Publish Imager repo
+
+# Regenerates os_list.json from every published, non-prerelease GitHub
+# Release and deploys it (plus icon and landing page) to GitHub Pages at
+# https://sjkowal.github.io/rpi-pinball/os_list.json.
+#
+# Called by build-image.yml after each release; the `release:` triggers cover
+# manual UI changes (deleting a bad release, flipping prerelease) so the list
+# stays in sync without a rebuild.
+on:
+  workflow_call:
+  workflow_dispatch:
+  release:
+    types: [published, released, edited, deleted]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect manifests from published releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p manifests site
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' |
+          while read -r tag; do
+            [ -n "$tag" ] || continue
+            if gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+                 --pattern '*.manifest.json' --dir "manifests/$tag"; then
+              echo "collected $tag"
+            else
+              echo "::warning::release $tag has no *.manifest.json asset; skipped"
+            fi
+          done
+          find manifests -type f
+
+      - name: Generate site
+        run: |
+          shopt -s nullglob
+          python3 imager/gen-os-list.py repo \
+            --icon "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/icon.png" \
+            manifests/*/*.manifest.json -o site/os_list.json
+          cp imager/icon.png imager/index.html site/
+          python3 -m json.tool site/os_list.json
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

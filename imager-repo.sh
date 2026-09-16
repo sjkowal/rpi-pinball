@@ -7,9 +7,13 @@
 # supports. Pointing Imager at this generated manifest instead (as its own
 # OS-list entry) gives it the metadata it needs. See
 # docs/rpi-image-gen-notes.md for the full story and verification caveats.
+#
+# Thin wrapper: the manifest shape itself lives in imager/gen-os-list.py,
+# shared with the hosted repo published by CI (see README "Releases").
 set -euo pipefail
 
-DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/pinball/deploy" && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEPLOY_DIR="$ROOT/pinball/deploy"
 IMG="${1:-$(ls -t "$DEPLOY_DIR"/*.img 2>/dev/null | head -n1)}"
 
 if [ -z "$IMG" ] || [ ! -f "$IMG" ]; then
@@ -18,40 +22,10 @@ if [ -z "$IMG" ] || [ ! -f "$IMG" ]; then
   exit 1
 fi
 
-SIZE=$(stat -f%z "$IMG" 2>/dev/null || stat -c%s "$IMG")
-SHA256=$(shasum -a 256 "$IMG" | awk '{print $1}')
 OUT="$DEPLOY_DIR/local_repo.json"
+python3 "$ROOT/imager/gen-os-list.py" local --img "$IMG" -o "$OUT"
 
-cat > "$OUT" <<JSON
-{
-  "imager": {
-    "devices": [
-      {
-        "name": "Raspberry Pi 5",
-        "description": "Raspberry Pi 5",
-        "tags": ["pi5"],
-        "matching_type": "exclusive"
-      }
-    ]
-  },
-  "os_list": [
-    {
-      "name": "Pinball Machine (dev build)",
-      "description": "Custom MPF-based Raspberry Pi 5 pinball image (rpi-pinball project) -- $(basename "$IMG")",
-      "icon": "",
-      "url": "file://$IMG",
-      "extract_size": $SIZE,
-      "extract_sha256": "$SHA256",
-      "image_download_size": $SIZE,
-      "release_date": "$(date +%Y-%m-%d)",
-      "devices": ["pi5"],
-      "init_format": "rpi-preseed"
-    }
-  ]
-}
-JSON
-
-echo "Wrote $OUT for $(basename "$IMG")"
+echo "Manifest covers $(basename "$IMG")"
 echo
 echo "In Raspberry Pi Imager: App Options -> Content Repository -> EDIT ->"
 echo "Use custom file -> select $OUT -> APPLY & RESTART."
