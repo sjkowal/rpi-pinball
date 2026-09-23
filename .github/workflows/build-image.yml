@@ -13,24 +13,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    # Native arm64: rpi-image-gen only formally supports arm64 Debian hosts,
-    # and our Dockerfile's amd64 path is unverified. 4 vCPU / 16 GB / 14 GB
-    # disk on public repos, free and unmetered.
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 180
+  # Cheap, once per run: resolve the version and enforce the release guard
+  # before spending two arm64 runners on it. The guard checks a config file
+  # shared by every model, so running it per matrix leg would be redundant.
+  prepare:
+    runs-on: ubuntu-24.04
     outputs:
       tag: ${{ steps.ver.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Free disk space
-        run: |
-          df -h /
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-                      /usr/local/.ghcup /usr/share/swift /opt/hostedtoolcache/CodeQL || true
-          sudo docker image prune -af || true
-          df -h /
 
       - name: Resolve version
         id: ver
@@ -54,55 +45,106 @@ jobs:
             exit 1
           fi
 
+  build:
+    needs: prepare
+    # Native arm64: rpi-image-gen only formally supports arm64 Debian hosts,
+    # and our Dockerfile's amd64 path is unverified. 4 vCPU / 16 GB / 14 GB
+    # disk on public repos, free and unmetered.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    strategy:
+      # One leg per supported Pi model, in parallel — each gets its own runner,
+      # so the tight disk budget below is per-leg. fail-fast off so a problem
+      # with one board still yields the other's image to look at.
+      fail-fast: false
+      matrix:
+        model: [pi4, pi5]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/.ghcup /usr/share/swift /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af || true
+          df -h /
+
+      # One canonical basename per leg, from the same script build.sh uses, so
+      # every asset below agrees: pinbos-mpf57-rpi5-v0.3.0
+      - name: Resolve artifact name
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          MODEL: ${{ matrix.model }}
+        run: |
+          BASE="$(./scripts/image-name.sh "$MODEL" "$TAG")"
+          echo "BASE=$BASE" >> "$GITHUB_ENV"
+          echo "Artifact basename: $BASE"
+
       - name: Build image (same script as local)
         env:
           RPI_IMAGE_OUT_DIR: ${{ runner.temp }}/out
-          RPI_IMAGE_OUT_NAME: pinball-${{ steps.ver.outputs.tag }}.img
-        run: ./build.sh
+          RPI_IMAGE_OUT_NAME: ${{ env.BASE }}.img
+        run: ./build.sh ${{ matrix.model }}
 
       - name: Compress, hash, write manifest
         working-directory: ${{ runner.temp }}/out
         env:
-          TAG: ${{ steps.ver.outputs.tag }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          MODEL: ${{ matrix.model }}
           XZ_LEVEL: ${{ vars.XZ_LEVEL || '-6' }}
         run: |
           df -h /
           ls -la
-          xz -T0 "$XZ_LEVEL" -k -v "pinball-$TAG.img"
-          sha256sum "pinball-$TAG.img.xz" > "pinball-$TAG.img.xz.sha256"
+          xz -T0 "$XZ_LEVEL" -k -v "$BASE.img"
+          sha256sum "$BASE.img.xz" > "$BASE.img.xz.sha256"
           python3 "$GITHUB_WORKSPACE/imager/gen-os-list.py" entry \
-            --img "pinball-$TAG.img" --xz "pinball-$TAG.img.xz" \
-            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/pinball-$TAG.img.xz" \
-            --name "Pinball Machine $TAG" \
+            --img "$BASE.img" --xz "$BASE.img.xz" \
+            --model "$MODEL" --version "$TAG" \
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$BASE.img.xz" \
             --release-date "$(date -u +%Y-%m-%d)" \
-            -o "pinball-$TAG.manifest.json"
-          rm "pinball-$TAG.img"
+            -o "$BASE.manifest.json"
+          rm "$BASE.img"
           ls -la
-          cat "pinball-$TAG.manifest.json"
+          cat "$BASE.manifest.json"
           df -h /
 
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ runner.temp }}/out/pinball-*
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
-
-      # Anything that is not a tag (manual dispatch, branch push) is a test
-      # build: keep the output as a short-lived artifact instead of a release.
-      - name: Upload test-build artifact
-        if: "!startsWith(github.ref, 'refs/tags/')"
+      # Always, not just for test builds: the release job below collects these.
+      # Per-model name so the two legs don't collide.
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pinball-image-${{ steps.ver.outputs.tag }}
+          name: pinbos-${{ matrix.model }}-${{ needs.prepare.outputs.tag }}
           path: ${{ runner.temp }}/out
           retention-days: 1
+
+  # Publishing from inside the matrix would run twice against one tag: assets
+  # would append fine, but both legs asking for generate_release_notes races on
+  # the release body. Collect both legs' assets and publish exactly once.
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pinbos-*
+          merge-multiple: true
+          path: out
+
+      - run: ls -la out
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/pinbos-*
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
 
   # Releases created with GITHUB_TOKEN do not fire `release:` events, so the
   # Imager repo must be regenerated explicitly here.
   publish:
-    needs: build
+    needs: release
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     uses: ./.github/workflows/publish-imager-repo.yml
     permissions:

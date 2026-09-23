@@ -4,6 +4,12 @@
 # writeup and why each layer below is included.
 
 device:
+  # DEFAULT ONLY — do not edit this to build for another Pi. `./build.sh pi4`
+  # overrides it with `IGconf_device_layer=rpi4` on the rpi-image-gen command
+  # line (the CLI's collect_layers() reads exactly this variable), so one
+  # config serves every supported model and all the hard-won commentary in
+  # this file stays in one place. Supported models live in
+  # scripts/image-name.sh; a bare `./build.sh` still builds a Pi 5.
   layer: rpi5
   hostname: pinball
   user1: pinball
@@ -67,6 +73,13 @@ image:
 #    blocks — mke2fs warns "16384-byte blocks too big for system (max
 #    4096)" and then fails outright ("Could not allocate block"). Override
 #    back to a normal 4096 block size (`-b 4096`). This part is a genuine fix.
+#
+#    Multi-model note: this override is rpi5-specific in origin but safe to
+#    share. rpi4 (and rpi3) use rpi-generic64 → rpi-linux-v8, whose page size
+#    is already 4096, so the trigger would have set `-b 4096` there anyway and
+#    the e2fsprogs failure above cannot occur. That is the main reason a single
+#    config file can target every model with nothing but a device.layer
+#    override.
 #
 # 2. image/mbr/simple_dual/mke2fs.conf enables `metadata_csum,64bit` by
 #    default for ext4. Initial theory: the minimal BusyBox `blkid` inside

@@ -1,13 +1,28 @@
 # METABEGIN
 # X-Env-Layer-Name: pinball-mpf
 # X-Env-Layer-Category: app-misc
-# X-Env-Layer-Desc: Mission Pinball Framework (MPF) 0.57 + mpf-mc installed
-#  into a dedicated venv at /opt/mpf/venv, with P-ROC/P3-ROC hardware
-#  support. No machine folder (game code) baked in, and MPF is not started
-#  automatically — ssh in and run `mpf both <machine_path>` manually once a
-#  machine folder is added.
-# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Desc: Mission Pinball Framework (MPF) + mpf-mc installed into a
+#  dedicated venv at /opt/mpf/venv, with P-ROC/P3-ROC hardware support. The
+#  release line is set by the `version` variable below. No machine folder
+#  (game code) baked in, and MPF is not started automatically — ssh in and
+#  run `mpf both <machine_path>` manually once a machine folder is added.
+# X-Env-Layer-Version: 1.1.0
 # X-Env-Layer-Requires: device-user-admin
+#
+# X-Env-VarPrefix: mpf
+#
+# X-Env-Var-version: 0.57
+# X-Env-Var-version-Desc: MPF release line to install, as a pip
+#  compatible-release pin (mpf~=<version>.0), so the exact patch floats within
+#  the series. THIS LINE IS THE SINGLE SOURCE OF TRUTH FOR THE MPF VERSION:
+#  the install hook below uses it, and scripts/image-name.sh greps it (on the
+#  host, outside the container) to build the mpf<NN> token in artifact
+#  filenames — so a released file can never claim an MPF version the image
+#  does not have. Override for a one-off with `MPF_VERSION=0.60 ./build.sh`,
+#  which build.sh forwards as IGconf_mpf_version.
+# X-Env-Var-version-Required: n
+# X-Env-Var-version-Valid: regex:^[0-9]+\.[0-9]+$
+# X-Env-Var-version-Set: y
 # METAEND
 ---
 mmdebstrap:
@@ -43,10 +58,12 @@ mmdebstrap:
     - chroot $1 python3 -m venv /opt/mpf/venv
     - chroot $1 /opt/mpf/venv/bin/pip install --upgrade pip
     - |-
-      # Pinned to the 0.57 line (not an exact patch — see
+      # Pinned to a release line, not an exact patch (see
       # docs/rpi-image-gen-notes.md) — mpf-mc only, no mpf-monitor (needs
-      # PyQt6, known Pi compatibility issues).
-      chroot $1 /opt/mpf/venv/bin/pip install "mpf~=0.57.0" "mpf-mc~=0.57.0"
+      # PyQt6, known Pi compatibility issues). The version comes from this
+      # layer's own `version` variable, declared above, which is also what
+      # names the built image.
+      chroot $1 /opt/mpf/venv/bin/pip install "mpf~=$IGconf_mpf_version.0" "mpf-mc~=$IGconf_mpf_version.0"
     - |-
       # Work around a real upstream bug in mpf itself (reproduced and
       # verified independently of this image, on a clean
