@@ -1,0 +1,18 @@
+# MPF 0.80 line: MPF core + the Godot Media Controller (GMC) runtime --
+# Godot on $PATH and a cage Wayland session (see pinball-gmc.yaml). GMC
+# itself is an addon inside each game project, so it is not shipped.
+# Everything shared by every MPF line lives in pinball.yaml, included below;
+# this file only says what makes the line different. build.sh picks it via
+# `scripts/image-name.sh --config 0.80`.
+include:
+  file: pinball.yaml
+
+mpf:
+  # THE single source of truth for this line's MPF version: the pinball-mpf
+  # layer pip-installs mpf~=<version>.0 from it, and scripts/image-name.sh
+  # greps it (and refuses to name an image if it disagrees with the line
+  # being built). Keep it on its own line, quoted.
+  version: "0.80"
+
+layer:
+  mc: pinball-gmc

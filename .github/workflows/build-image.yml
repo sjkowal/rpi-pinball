@@ -14,8 +14,8 @@ concurrency:
 
 jobs:
   # Cheap, once per run: resolve the version and enforce the release guard
-  # before spending two arm64 runners on it. The guard checks a config file
-  # shared by every model, so running it per matrix leg would be redundant.
+  # before spending four arm64 runners on it. The guard checks config files
+  # shared by every leg, so running it per matrix leg would be redundant.
   prepare:
     runs-on: ubuntu-24.04
     outputs:
@@ -40,8 +40,9 @@ jobs:
       - name: Release guard
         if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
         run: |
-          if grep -qE '^[[:space:]]*debug_shell:' pinball/pinball.yaml; then
-            echo "::error::pinball/pinball.yaml still enables the pinball-debug-shell layer; comment it out before tagging a release (or use a -rc prerelease tag)."
+          # The shared base and every per-line config that includes it.
+          if grep -lE '^[[:space:]]*debug_shell:' pinball/pinball.yaml pinball/pinball-mpf*.yaml; then
+            echo "::error::a config above still enables the pinball-debug-shell layer; comment it out before tagging a release (or use a -rc prerelease tag)."
             exit 1
           fi
 
@@ -53,12 +54,18 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
     strategy:
-      # One leg per supported Pi model, in parallel — each gets its own runner,
-      # so the tight disk budget below is per-leg. fail-fast off so a problem
-      # with one board still yields the other's image to look at.
+      # One leg per (Pi model, MPF line), in parallel — each gets its own
+      # runner, so the tight disk budget below is per-leg. fail-fast off so a
+      # problem with one leg still yields the others' images to look at.
+      # Keep in step with MODELS / MPF_LINES in scripts/image-name.sh.
       fail-fast: false
       matrix:
         model: [pi4, pi5]
+        # Quoted: unquoted YAML would read 0.80 as the float 0.8.
+        mpf: ['0.57', '0.80']
+    env:
+      # Read by scripts/image-name.sh (and so build.sh) in every step below.
+      MPF_VERSION: ${{ matrix.mpf }}
     steps:
       - uses: actions/checkout@v4
 
@@ -71,7 +78,7 @@ jobs:
           df -h /
 
       # One canonical basename per leg, from the same script build.sh uses, so
-      # every asset below agrees: pinbos-mpf57-rpi5-v0.3.0
+      # every asset below agrees: pinbos-mpf80-rpi5-v0.4.0
       - name: Resolve artifact name
         env:
           TAG: ${{ needs.prepare.outputs.tag }}
@@ -85,7 +92,7 @@ jobs:
         env:
           RPI_IMAGE_OUT_DIR: ${{ runner.temp }}/out
           RPI_IMAGE_OUT_NAME: ${{ env.BASE }}.img
-        run: ./build.sh ${{ matrix.model }}
+        run: ./build.sh ${{ matrix.model }} ${{ matrix.mpf }}
 
       - name: Compress, hash, write manifest
         working-directory: ${{ runner.temp }}/out
@@ -100,7 +107,8 @@ jobs:
           sha256sum "$BASE.img.xz" > "$BASE.img.xz.sha256"
           python3 "$GITHUB_WORKSPACE/imager/gen-os-list.py" entry \
             --img "$BASE.img" --xz "$BASE.img.xz" \
-            --model "$MODEL" --version "$TAG" \
+            --model "$MODEL" --mpf "$MPF_VERSION" --version "$TAG" \
+            --godot-version "$("$GITHUB_WORKSPACE/scripts/image-name.sh" --godot-version)" \
             --url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$BASE.img.xz" \
             --release-date "$(date -u +%Y-%m-%d)" \
             -o "$BASE.manifest.json"
@@ -110,17 +118,17 @@ jobs:
           df -h /
 
       # Always, not just for test builds: the release job below collects these.
-      # Per-model name so the two legs don't collide.
+      # Per-leg name (model + MPF line) so the four legs don't collide.
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pinbos-${{ matrix.model }}-${{ needs.prepare.outputs.tag }}
+          name: pinbos-${{ matrix.model }}-mpf${{ matrix.mpf }}-${{ needs.prepare.outputs.tag }}
           path: ${{ runner.temp }}/out
           retention-days: 1
 
-  # Publishing from inside the matrix would run twice against one tag: assets
-  # would append fine, but both legs asking for generate_release_notes races on
-  # the release body. Collect both legs' assets and publish exactly once.
+  # Publishing from inside the matrix would run once per leg against one tag:
+  # assets would append fine, but every leg asking for generate_release_notes
+  # races on the release body. Collect all legs' assets and publish once.
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')

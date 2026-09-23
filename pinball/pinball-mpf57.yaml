@@ -1,0 +1,17 @@
+# MPF 0.57 line: MPF core + the legacy Kivy/SDL2 media controller (mpf-mc).
+# Everything shared by every MPF line -- read-only OS, preseed, networking,
+# P-ROC, partition layout -- lives in pinball.yaml, included below; this
+# file only says what makes the line different. build.sh picks it via
+# `scripts/image-name.sh --config 0.57`.
+include:
+  file: pinball.yaml
+
+mpf:
+  # THE single source of truth for this line's MPF version: the pinball-mpf
+  # layer pip-installs mpf~=<version>.0 from it, and scripts/image-name.sh
+  # greps it (and refuses to name an image if it disagrees with the line
+  # being built). Keep it on its own line, quoted.
+  version: "0.57"
+
+layer:
+  mc: pinball-mpf-mc

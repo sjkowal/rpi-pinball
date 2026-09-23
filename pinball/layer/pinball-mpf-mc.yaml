@@ -1,0 +1,43 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-mpf-mc
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: The legacy Kivy/SDL2 media controller (mpf-mc) for the
+#  MPF 0.57 line, installed into pinball-mpf's venv. Selected by
+#  pinball/pinball-mpf57.yaml. MPF 0.80 dropped mpf-mc in favour of the
+#  Godot Media Controller (pinball-gmc), so this layer is 0.57-only. Split
+#  out of pinball-mpf unchanged: same packages, same pip pin, so a 0.57
+#  image has exactly the contents it had before the split.
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Requires: pinball-mpf
+# METAEND
+---
+mmdebstrap:
+  packages:
+    # Build/runtime deps for mpf-mc and the pieces pip compiles from source
+    # (mpf-mc itself, ffpyplayer) -- see docs/rpi-image-gen-notes.md.
+    - tk-dev
+    - libgstreamer1.0-dev
+    - libgstreamer-plugins-base1.0-dev
+    - libsdl2-dev
+    - libsdl2-image-dev
+    - libsdl2-mixer-dev
+    - libavcodec-dev
+    - libavformat-dev
+    - libswscale-dev
+    - libavdevice-dev
+    - libavfilter-dev
+    - cmake
+  customize-hooks:
+    - |-
+      # Same compatible-release pin as MPF core, from the same variable, so
+      # mpf and mpf-mc always come from one release line.
+      chroot $1 /opt/mpf/venv/bin/pip install "mpf-mc~=$IGconf_mpf_version.0"
+    - |-
+      # pinball-mpf chowned /opt/mpf to the login user before this layer
+      # ran; pip just left root-owned files behind, so redo it.
+      chroot $1 chown -R "$IGconf_device_user1:$IGconf_device_user1" /opt/mpf
+    - |-
+      # mpf-mc contributes `mpf mc`/`mpf both` via the mpf.command entry
+      # point group, which mpf's CLI loads through pkg_resources -- so
+      # re-check the CLI now that there is something for it to load.
+      chroot $1 env HOME=/root /opt/mpf/venv/bin/mpf --help > /dev/null

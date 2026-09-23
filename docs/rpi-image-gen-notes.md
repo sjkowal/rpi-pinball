@@ -554,7 +554,7 @@ Product name in artifacts only — `image.name`, `device.hostname`, `pinball-rw`
 
 `scripts/image-name.sh` is the single seam: it owns the supported-model list, the device-layer derivation (`pi4` → `rpi4`), and the name format, and both `build.sh` and CI call it so a release asset and a local build cannot disagree. The version component is the tag in CI and `git describe --tags --always --dirty` locally.
 
-The MPF release line needed to be readable **on the host**, outside the container, because CI names the `.xz` and writes the Imager manifest on the runner. It is now declared once as `X-Env-Var-version: 0.57` in `pinball/layer/pinball-mpf.yaml`'s metadata: the layer's own `pip install` hook uses `$IGconf_mpf_version`, and `image-name.sh` greps that same line for the `mpf<NN>` token. The token drops a leading `0.` and any dots (`0.57` → `mpf57`); an eventual MPF 1.x would render `1.0` as `mpf10`, colliding with a hypothetical `0.10`, which is noted in the script but not a practical concern.
+The MPF release line needed to be readable **on the host**, outside the container, because CI names the `.xz` and writes the Imager manifest on the runner. It was declared once as `X-Env-Var-version: 0.57` in `pinball/layer/pinball-mpf.yaml`'s metadata (superseded by the per-line configs, see *Two MPF release lines* below): the layer's own `pip install` hook uses `$IGconf_mpf_version`, and `image-name.sh` greps that same line for the `mpf<NN>` token. The token drops a leading `0.` and any dots (`0.57` → `mpf57`); an eventual MPF 1.x would render `1.0` as `mpf10`, colliding with a hypothetical `0.10`, which is noted in the script but not a practical concern.
 
 ### Imager repository with two boards
 
@@ -567,3 +567,50 @@ The MPF release line needed to be readable **on the host**, outside the containe
 ### Not verified on hardware
 
 A Pi 4 image has not been flashed and booted. Also unknown: whether a Pi 4 has enough headroom for `mpf-mc` at runtime. The hardware checklist above applies unchanged, plus: in Imager, select Raspberry Pi 4 and confirm only the pi4 entry appears, then Raspberry Pi 5 and confirm only the pi5 entry — that is the `imager.devices`/`devices` filter, the mechanism that silently broke before.
+
+## Two MPF release lines (0.57 + 0.80/GMC)
+
+Added 2026-09-22. Every release now carries four images: {pi4, pi5} × {MPF 0.57, MPF 0.80}. MPF 0.80.0 is final on PyPI (`requires_python >=3.10,<3.15`, so bookworm's 3.11 is fine). It drops the Kivy `mpf-mc` for the **Godot Media Controller (GMC)**.
+
+### What 0.80 actually needs on the image (read from MPF's `0.80.x` source)
+
+- `mpf both` (`mpf/commands/both.py`) no longer runs mpf-mc. It spawns `shutil.which(godot_exec_path)`, default `"godot"`, with `cwd` set to the GMC project path (default: the machine folder, which must hold `project.godot`). Both can be overridden with `-G`/`-g` or `gmc.cfg`'s `[cli]` section. So a `godot` on `$PATH` is the whole integration, with no config needed.
+- `mpf/_version.py` pins `__gmc_version__ = '1.0.0'`. GMC 1.0.0's changelog requires Godot 4.5+. The official Godot release ships `Godot_v<ver>-stable_linux.arm64.zip` and a `SHA512-SUMS.txt`, with no GDExtension or other native pieces. The image pins **4.7.2** (the latest stable at the time).
+- GMC itself is a Godot addon inside each game project (`addons/mpf-gmc`), installed with the Godot editor's Asset Library. It is not an image concern.
+- `mpf/commands/__init__.py` still does `from pkg_resources import iter_entry_points`, and 0.80 still pins `setuptools~=72.2.0`. So the `ruamel.yaml.clib` dist-info workaround is kept for both lines. It is now idempotent and tolerant, and a build-time `mpf --help` decides whether the CLI works.
+- P-ROC: `mpf/platforms/p_roc*.py` is unchanged in shape, so `pinball-proc` serves both lines.
+
+### Config: per-line files that `include:` a shared base
+
+This time `include:` is the right tool. For the *model* split it was rejected (see above) because only one variable differed. For the *MPF line* the **layer set** differs (`pinball-mpf-mc` vs `pinball-gmc`) along with the version. `config_loader.py` merges included sections key by key, with the including file winning, and `collect_layers()` picks up every `IGconf_layer_*` key. So `pinball-mpf80.yaml` is just `include: {file: pinball.yaml}`, `mpf: {version: "0.80"}` and `layer: {mc: pinball-gmc}`, and all the commentary in `pinball.yaml` stays in one place. The release guard now greps `pinball/pinball.yaml pinball/pinball-mpf*.yaml`.
+
+`mpf.version` **must be quoted**: `config_loader` does `str(v)` on YAML scalars, so an unquoted `0.80` would become `"0.8"`. The same trap applies to the CI matrix (`mpf: ['0.57', '0.80']`).
+
+`pinball-mpf.yaml`'s `version` variable now has no default (`Required: y`, `Set: n`), so building the base `pinball.yaml` directly fails metadata validation with "missing required" instead of silently picking a line. `scripts/image-name.sh` greps `version:` under `mpf:` from the selected line's config and refuses to name an image whose line disagrees with it. This keeps the property the earlier design had: a filename cannot claim an MPF version the image does not have.
+
+`image-name.sh` gotcha: `die` inside a function called from `$(...)` does not stop the script. bash ignores `set -e` inside command substitution before 4.4's `inherit_errexit`, and macOS ships 3.2. Values are resolved into plain variables first, with explicit `|| exit 1` where a function calls another through `$(...)`.
+
+### Layers
+
+- `pinball-mpf` is now **MPF core only**: venv, `mpf~=<line>.0`, the ruamel fix, the `mpf --help` check, PATH, chown.
+- `pinball-mpf-mc` (0.57) holds the SDL2/GStreamer/ffmpeg/Kivy build dependencies and `mpf-mc~=<line>.0`, moved unchanged out of `pinball-mpf`. So a 0.57 image should contain exactly what it did before, just installed in a different hook order.
+- `pinball-gmc` (0.80) downloads the pinned Godot and checks it against the release's own `SHA512-SUMS.txt`. It unpacks to `/opt/godot/<ver>/`, symlinks `/usr/local/bin/godot`, and smoke-tests with `godot --headless --version`. It also adds:
+  - **cage**: Godot 4 on Linux needs X11 or Wayland and has no KMS/DRM backend, unlike mpf-mc's SDL2. cage is a single-app Wayland kiosk compositor, the pattern of upstream's `examples/webkiosk`.
+  - **seatd**: Debian's unit runs `seatd -g video`. With it, cage gets a seat over SSH, where logind gives no seat, as well as from tty1. The login user is already in `video`, `render`, `input` and `audio` from `device-user-credentials`' defaults.
+  - **Mesa**: Vulkan for the Mobile/Forward+ renderers and GLES/EGL for Compatibility, plus the Wayland, xkbcommon and ALSA/Pulse libraries Godot `dlopen()`s.
+
+  Godot's user data and shader cache live in `~/.local/share/godot`, which is on DATA, so the read-only root holds.
+
+### Imager
+
+The entry name is `PinbOS <tag> · MPF 0.80 · Godot MC (Raspberry Pi 5)`, and the 0.80 description carries the Godot version. Each entry records `"mpf_line"`, which Imager ignores as an unknown key. The sort is `(release_date, model, MPF line)` with newest first. Manifests from before this change have no `mpf_line`; the line is parsed from their `-mpf<NN>-` URL, falling back to 0.57.
+
+### Not verified on hardware
+
+Builds are checked with `mpf --help` and `godot --headless --version` in the chroot. Still to confirm on a Pi 5 and then a Pi 4, with a real GMC project in `~/machine`:
+- `cage -- mpf both` from tty1 **and** from SSH.
+- Godot picks Wayland under cage with no `DISPLAY`. If not, make `/usr/local/bin/godot` a wrapper that adds `--display-driver wayland`.
+- The Vulkan (Mobile) and Compatibility renderers both work.
+- Audio comes out.
+- The Pi 4 has enough headroom.
+- In Imager each board lists both lines for a release.

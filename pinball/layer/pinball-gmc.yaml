@@ -1,0 +1,97 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-gmc
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: Runtime for the Godot Media Controller (GMC) used by the
+#  MPF 0.80 line: the official Godot 4 linux.arm64 binary on $PATH as
+#  `godot`, plus a Wayland kiosk compositor (cage) and the GPU/audio stack
+#  it needs. Selected by pinball/pinball-mpf80.yaml.
+#
+#  Why this shape: MPF 0.80's `mpf both` (mpf/commands/both.py) spawns
+#  `shutil.which("godot")` against the machine folder's project.godot, so a
+#  `godot` on $PATH is all MPF needs -- no gmc.cfg edits. GMC itself is a
+#  Godot addon that lives in each game project (addons/mpf-gmc), so it is
+#  not shipped here. Unlike mpf-mc's SDL2, Godot 4 cannot draw straight to
+#  KMS/DRM and needs a display server; cage is a single-app Wayland
+#  compositor (the pattern rpi-image-gen's own examples/webkiosk uses), so
+#  `cage -- mpf both` runs MPF with Godot full screen and nothing else.
+#
+#  seatd gives cage a seat whether it is started from the tty1 console or
+#  over SSH (which has no logind seat). Debian's unit runs `seatd -g video`,
+#  and the login user is already in video/render/input/audio via
+#  device-user-credentials' default groups.
+#
+#  Nothing here writes to the read-only root at runtime: Godot keeps its
+#  user data and shader cache under ~/.local/share/godot, i.e. on DATA.
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Requires: pinball-mpf
+#
+# X-Env-VarPrefix: gmc
+#
+# X-Env-Var-godot_version: 4.7.2
+# X-Env-Var-godot_version-Desc: Exact Godot release to install (the
+#  <version>-stable tag on github.com/godotengine/godot). GMC 1.0.0, the
+#  version MPF 0.80 pins, needs 4.5 or later. Game projects should be edited
+#  with the same minor version. The download is checked against that
+#  release's own SHA512-SUMS.txt. scripts/image-name.sh --godot-version reads
+#  this line (for the Imager description), so keep it on one line.
+# X-Env-Var-godot_version-Required: n
+# X-Env-Var-godot_version-Valid: regex:^[0-9]+\.[0-9]+(\.[0-9]+)?$
+# X-Env-Var-godot_version-Set: y
+# METAEND
+---
+mmdebstrap:
+  packages:
+    # Display: Wayland kiosk compositor + seat management.
+    - cage
+    - seatd
+    # GPU: Vulkan (Godot's Mobile/Forward+ renderers) via Mesa's v3dv, and
+    # GLES3/EGL (Compatibility renderer) via Mesa's v3d.
+    - mesa-vulkan-drivers
+    - libvulkan1
+    - libegl1
+    - libgles2
+    - libgl1-mesa-dri
+    # Libraries Godot dlopen()s at runtime rather than links against.
+    - libwayland-client0
+    - libwayland-cursor0
+    - libwayland-egl1
+    - libxkbcommon0
+    - libdecor-0-0
+    - libasound2
+    - libpulse0
+    - libudev1
+    - fontconfig
+    # For the download hook below.
+    - curl
+    - ca-certificates
+    - unzip
+  customize-hooks:
+    - |-
+      # Official Godot build, checksum-verified against the release's own
+      # SHA512-SUMS.txt, installed per-version under /opt/godot so a
+      # maintenance-mode upgrade can sit alongside the original.
+      chroot $1 env GODOT_VERSION="$IGconf_gmc_godot_version" bash -e -c '
+        zip="Godot_v${GODOT_VERSION}-stable_linux.arm64.zip"
+        base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+        tmp="$(mktemp -d)"
+        cd "$tmp"
+        curl -fsSL -o "$zip" "$base/$zip"
+        curl -fsSL -o SHA512-SUMS.txt "$base/SHA512-SUMS.txt"
+        grep "  ${zip}\$" SHA512-SUMS.txt > expected.txt
+        [ -s expected.txt ] || { echo "no checksum for $zip in SHA512-SUMS.txt" >&2; exit 1; }
+        sha512sum -c expected.txt
+        dest="/opt/godot/${GODOT_VERSION}"
+        rm -rf "$dest"
+        mkdir -p "$dest"
+        unzip -q "$zip" -d "$dest"
+        bin="$(ls "$dest"/Godot_v*linux.arm64)"
+        chmod 755 "$bin"
+        ln -sfn "$bin" /usr/local/bin/godot
+        cd /
+        rm -rf "$tmp"
+      '
+    - |-
+      # Fail the build, not the first game, if the binary cannot start on
+      # this rootfs (missing library, wrong architecture).
+      chroot $1 env HOME=/root godot --headless --version
+    - $BDEBSTRAP_HOOKS/enable-units "$1" seatd

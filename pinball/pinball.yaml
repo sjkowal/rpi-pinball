@@ -2,6 +2,13 @@
 # (INI/.options support was fully removed as of v2.8.0; YAML is the only
 # format now). See docs/rpi-image-gen-notes.md for the full v2.8.0 migration
 # writeup and why each layer below is included.
+#
+# SHARED BASE -- not built directly. Each MPF release line has its own small
+# config that includes this file and adds only what differs:
+# pinball-mpf57.yaml (mpf-mc) and pinball-mpf80.yaml (Godot/GMC). Those set
+# `mpf.version` and the media-controller layer (`layer.mc`); building this
+# file on its own fails on pinball-mpf's missing required `version`, by
+# design. `./build.sh [model] [mpf line]` picks the right one.
 
 device:
   # DEFAULT ONLY — do not edit this to build for another Pi. `./build.sh pi4`
@@ -143,6 +150,8 @@ layer:
   readonly: pinball-readonly-root
   locale: locale-base
   locale_gen: locale-gen
+  # MPF core only. The media controller layer (`mc:`) and the MPF version
+  # come from the per-line config that includes this file.
   mpf: pinball-mpf
   # Builds libpinproc + pypinproc from source into the MPF venv. Declares
   # Requires: pinball-mpf so its hooks run after the venv exists (rpi-image-gen
