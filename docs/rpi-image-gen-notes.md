@@ -513,3 +513,57 @@ Goal: a power cut mid-game must not be able to corrupt the OS. Design: `/` and `
 - Imager with full customisation: SSH login as the chosen user, `~` on `/data` with `authorized_keys`, WiFi up, hostname right -- this is the test of the `/home` migration and of leaving NM profiles on root.
 - `touch /etc/x` fails; `git clone … ~/machine && mpf both` works; pull power mid-game a few times, `/data` gets auto-repaired (`fsck.repair=yes` on the cmdline applies to every `systemd-fsck@` instance).
 - `sudo pinball-rw && sudo apt update && pip install <pkg> && sudo pinball-ro` round-trips.
+
+## Multi-model support (Pi 4 + Pi 5) and self-describing image names
+
+Added 2026-09-22. Two related changes: one build can target a different Raspberry Pi, and the artifact filename now says which board and which MPF release line it holds.
+
+### Retargeting is a variable override, not a second config
+
+`rpi-image-gen` v2.8.0's `build` subcommand takes variable overrides after `--`:
+
+```
+./rpi-image-gen build -S <srcroot> -c pinball.yaml -- IGconf_device_layer=rpi4
+```
+
+Traced through the v2.8.0 source to confirm this is the right seam rather than guessing:
+
+- `lib/cli.sh` documents `[-- key=value ...]`; `site/env_init.py`'s `_normalise_overrides()` strips the leading `--` and passes the pairs through `bin/ig env` → `scripts/host2sh.py` → the `OVERRIDES` array in the main script, which writes them to a file handed to `ig config --overrides`.
+- `site/config_loader.py` maps a config `[section] key` to the env key `IGconf_<section>_<key>` (`_env_key()`), and applies precedence *process environment > override file > config file* (`_write_var`/`_set_env_if_unset`). A `device: layer:` pair is therefore `IGconf_device_layer`.
+- The main script's `collect_layers()` builds the pipeline's layer list from exactly `IGconf_device_layer | IGconf_image_layer | IGconf_layer_*` in the resolved config env. So overriding that one variable genuinely swaps the device layer — it is not a cosmetic setting that something else re-derives.
+
+The alternative was per-model config files sharing a base via `config_loader.py`'s `include:`. Rejected: `pinball.yaml` carries most of the rationale in this document as comments, and splitting it would either duplicate or scatter that. It would also break the CI release guard, which greps the literal path `pinball/pinball.yaml` for `debug_shell:`.
+
+### Why one config really does serve every board
+
+Only `device.layer` is board-dependent. Upstream at `v2.8.0`:
+
+| model | layer | requires | page size |
+|---|---|---|---|
+| pi4 | `rpi4` | `rpi-generic64` → `rpi-device-base` + `rpi-linux-v8` | 4K |
+| pi5 | `rpi5` | `rpi-device-base` + `rpi-linux-2712` | 16K |
+| pi3 | `rpi3` | `rpi-generic64` (same as pi4) | 4K |
+
+The one setting that looks board-specific, `fs.ext4_mkfs_args`' `-b 4096`, is safe to share: it exists because rpi5's 16K-page kernel makes `image-rpios` ask e2fsprogs for 16384-byte blocks, which it cannot create. On `rpi-linux-v8` the page size is already 4096, so the trigger would have produced `-b 4096` anyway. `rpi-generic64` also describes itself as carrying "boot firmware supporting all devices, and wlan/BT firmware", so the Pi 4's Broadcom WiFi firmware comes from the same layer as its kernel.
+
+Everything else is board-independent by construction, which is the main reason a Pi 4 image is expected to boot first time: the partition layout, the fixed `image.disksig` and the `PARTUUID` root discovery derived from it are MBR/kernel-level; nothing in the repo hardcodes a block device (`pinball-firstboot.sh` discovers DATA via `findmnt`/`lsblk`/`/sys`); and `pinball-bootdev-fix`'s removal of the `case $GEN in 4|5);;` guard from `rpi-bootdev-tag` is unconditional, so on a Pi 4 it is at worst a no-op.
+
+### Naming: `pinbos-mpf57-rpi5-v0.3.0.img`
+
+Product name in artifacts only — `image.name`, `device.hostname`, `pinball-rw`/`pinball-ro`, every layer name and the `pinball/` source tree are deliberately unchanged, so a device flashed from an older image still behaves and reads the same.
+
+`scripts/image-name.sh` is the single seam: it owns the supported-model list, the device-layer derivation (`pi4` → `rpi4`), and the name format, and both `build.sh` and CI call it so a release asset and a local build cannot disagree. The version component is the tag in CI and `git describe --tags --always --dirty` locally.
+
+The MPF release line needed to be readable **on the host**, outside the container, because CI names the `.xz` and writes the Imager manifest on the runner. It is now declared once as `X-Env-Var-version: 0.57` in `pinball/layer/pinball-mpf.yaml`'s metadata: the layer's own `pip install` hook uses `$IGconf_mpf_version`, and `image-name.sh` greps that same line for the `mpf<NN>` token. The token drops a leading `0.` and any dots (`0.57` → `mpf57`); an eventual MPF 1.x would render `1.0` as `mpf10`, colliding with a hypothetical `0.10`, which is noted in the script but not a practical concern.
+
+### Imager repository with two boards
+
+`imager/gen-os-list.py` gained a `MODELS` table and a `--model` flag. Each `os_list` entry declares only its own board (`"devices": ["pi4"]`), while the top-level `imager.devices` block always lists **every** supported board regardless of what the `os_list` contains — the asymmetry matters because of the `hw_filter` bug root-caused earlier in this document: a tag missing from `imager.devices` silently hides its entries, whereas a tag with no entries is harmless (the "Choose Device" step reads Imager's own bundled catalog, a separate code path). Entry sort is now `(release_date, MODEL_ORDER)` rather than `(release_date, name)`, because two entries per release made the name tiebreak interleave releases. `architecture` stays `armv8` — Pi 4 is Cortex-A72, Pi 5 Cortex-A76, both ARMv8-A/aarch64.
+
+### CI
+
+`build-image.yml` became four jobs: `prepare` (version + release guard, once — the guard reads a config shared by every board), `build` (matrix leg per model, `fail-fast: false`, each on its own arm64 runner so the ~14 GB disk budget stays per-leg), `release`, `publish`. The release is deliberately **not** published from inside the matrix: `softprops/action-gh-release@v2` appends assets happily, but two legs both passing `generate_release_notes: true` race on the release body. The `release` job downloads both legs' artifacts with `merge-multiple: true` and publishes once. `publish-imager-repo.yml` needed no change — its `*.manifest.json` download pattern and `manifests/*/*.manifest.json` glob already handle several manifests per tag.
+
+### Not verified on hardware
+
+A Pi 4 image has not been flashed and booted. Also unknown: whether a Pi 4 has enough headroom for `mpf-mc` at runtime. The hardware checklist above applies unchanged, plus: in Imager, select Raspberry Pi 4 and confirm only the pi4 entry appears, then Raspberry Pi 5 and confirm only the pi5 entry — that is the `imager.devices`/`devices` filter, the mechanism that silently broke before.

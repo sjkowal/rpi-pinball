@@ -4,6 +4,11 @@ name: Publish Imager repo
 # Release and deploys it (plus icon and landing page) to GitHub Pages at
 # https://sjkowal.github.io/rpi-pinball/os_list.json.
 #
+# A release carries one *.manifest.json per Pi model, so the download pattern
+# and the merge glob below both pick up several files per tag; gen-os-list.py
+# re-emits a single imager.devices block covering every supported model, which
+# is what lets Imager filter the combined list by the board the user picked.
+#
 # Called by build-image.yml after each release; the `release:` triggers cover
 # manual UI changes (deleting a bad release, flipping prerelease) so the list
 # stays in sync without a rebuild.
