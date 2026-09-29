@@ -1,0 +1,67 @@
+#!/bin/bash
+# gmc-run -- run an MPF 0.80 machine with its Godot Media Controller (GMC)
+# from source: import the Godot project's assets, then `mpf both` in cage.
+#
+#   gmc-run                      # machine folder = current directory
+#   gmc-run ~/machine            # explicit machine folder
+#   gmc-run ~/machine -X -v      # anything after the folder goes to `mpf both`
+#   GMC_SKIP_IMPORT=1 gmc-run    # skip the import step
+#
+# Why the import step is not optional: running a Godot project (which is
+# what `mpf both` does -- it starts `godot` in the project folder) never
+# imports assets; only the editor or `godot --headless --import` does. Until
+# they are imported, every image, sound and font fails to load with "No
+# loader found for resource". New or changed assets need it again, since a
+# running project does not notice them. When nothing changed it takes a few
+# seconds.
+#
+# Installed by the pinball-gmc layer (MPF 0.80 images only).
+set -euo pipefail
+
+die() { echo "gmc-run: $*" >&2; exit 1; }
+
+MACHINE="."
+if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then
+  MACHINE="$1"
+  shift
+fi
+[ -d "$MACHINE" ] || die "machine folder '$MACHINE' does not exist"
+# Run everything from the machine folder, so a relative gmc_project_path in
+# gmc.cfg resolves the same way for the import below and for `mpf both`.
+cd "$MACHINE"
+
+# The Godot project is the machine folder itself, unless gmc.cfg's [cli]
+# section points elsewhere (the same key `mpf both` reads). A -g on the
+# command line is not looked at; use gmc.cfg for a separate project folder.
+PROJECT="."
+if [ -f gmc.cfg ]; then
+  cfg="$(sed -n 's/^[[:space:]]*gmc_project_path[[:space:]]*[=:][[:space:]]*//p' gmc.cfg | head -n1)"
+  cfg="${cfg%\"}"; cfg="${cfg#\"}"; cfg="${cfg%\'}"; cfg="${cfg#\'}"
+  [ -z "$cfg" ] || PROJECT="$cfg"
+fi
+[ -f "$PROJECT/project.godot" ] || die "no project.godot in '$(cd "$PROJECT" 2>/dev/null && pwd || echo "$PROJECT")' -- is this a GMC machine folder?"
+
+MPF="$(command -v mpf || echo /opt/mpf/venv/bin/mpf)"
+[ -x "$MPF" ] || die "cannot find mpf (expected /opt/mpf/venv/bin/mpf)"
+
+if [ -z "${GMC_SKIP_IMPORT:-}" ]; then
+  # On a fresh checkout (no .godot/ yet) the first import reports ~17
+  # parse errors from GMC's editor plugin, which preloads its own icons
+  # before they have been imported; a second pass is clean. So a fresh
+  # project gets a silent first pass, and the pass that is shown is the one
+  # whose errors are real. `--import` exits 0 even with errors (and even
+  # for a corrupt image), so its output is the only signal.
+  if [ ! -d "$PROJECT/.godot" ]; then
+    echo "gmc-run: first import of this project (can take a while on a Pi)..."
+    godot --headless --import --path "$PROJECT" > /dev/null 2>&1 || true
+  fi
+  echo "gmc-run: importing Godot assets..."
+  godot --headless --import --path "$PROJECT" || die "godot --import failed"
+fi
+
+# Already inside a graphical session (a desktop, or a cage started some
+# other way): no need for a compositor of our own.
+if [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${DISPLAY:-}" ]; then
+  exec "$MPF" both "$@"
+fi
+exec cage -- "$MPF" both "$@"

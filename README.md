@@ -112,11 +112,21 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner; all four images 
   ```
   `mpf both` runs the core engine and media controller together — that's what you want for a full running machine. `mpf` alone only runs the core (no display), `mpf mc` alone only runs the media controller. `machine_path` is optional if you're already `cd`'d into a folder with a `config/` subfolder in it. (`mpf`/`mpf-mc` are on `$PATH` via `/etc/profile.d/mpf-path.sh`.)
 
-  **On an MPF 0.80 image**, Godot needs a display server, so run it inside cage:
+  **On an MPF 0.80 image**, use `gmc-run` instead:
   ```bash
-  cd ~/machine && cage -- mpf both
+  cd ~/machine && git pull && gmc-run      # or: gmc-run ~/machine
   ```
-  This works from the console and over SSH (`seatd` gives cage the seat either way). `mpf both` starts `godot` against the `project.godot` in your machine folder, or wherever `gmc.cfg`'s `gmc_project_path` points. Edit your project with **Godot 4.7.x**, the version on the image. Prefer the *Mobile* or *Compatibility* renderer. Godot plays only OGG Theora video, decoded in software, which the Pi does poorly, so the GMC docs recommend a Pi for DMD-style games.
+  It does two things:
+  1. **Imports the Godot project's assets** with `godot --headless --import`. This step is **required**, not an optimisation. Running a project from source, which is what `mpf both` does, never imports assets; only the editor or `--import` does. Without it every image, sound and font fails to load (`No loader found for resource`), and new or changed assets fail again until the next import. When nothing changed, the import takes a few seconds.
+  2. **Starts `cage -- mpf both`.** Godot needs a display server, and cage provides a full-screen one. This works from the console and over SSH, because `seatd` gives cage the seat either way.
+
+  `mpf both` starts `godot` against the `project.godot` in your machine folder, or wherever `gmc.cfg`'s `gmc_project_path` points; `gmc-run` imports that same folder. Arguments after the folder go to `mpf both` (`gmc-run ~/machine -X`). `GMC_SKIP_IMPORT=1` skips the import. To do it by hand: `godot --headless --import`, then `cage -- mpf both`.
+
+  On a fresh checkout (no `.godot/` folder yet), the first import prints around 17 parse errors from GMC's own editor plugin, which tries to load its icons before they're imported; a second import is clean. `gmc-run` runs the first pass silently for that reason. `godot --import` exits 0 even when assets fail, so read its output rather than trusting the exit status. Don't copy `.godot/` from your desktop; let the Pi build its own.
+
+  **You don't need to export for the Pi while developing.** The image ships the full Godot editor build, which runs the project from source. An export (made with Godot's Linux arm64 export templates) starts faster and has its assets already packed, so it's worth it for a finished machine. An export has no `project.godot`, though, so `mpf both`/`gmc-run` can't launch it: start the exported app under `cage` yourself and run plain `mpf` alongside it.
+
+  Edit your project with **Godot 4.7.x**, the version on the image. Prefer the *Mobile* or *Compatibility* renderer. Godot plays only OGG Theora video, decoded in software, which the Pi does poorly, so the GMC docs recommend a Pi for DMD-style games.
 - No systemd service — MPF is started manually while developing, not on boot.
 
 ## Maintenance mode (changing the OS)
@@ -140,7 +150,7 @@ Nothing to edit. The image ships with a locked placeholder account and no baked-
 
 **Confirmed working on real Pi 5 hardware**: SSH, WiFi, and `mpf` all verified directly on device. Imager OS Customisation via the `rpi-preseed` format is the current mechanism after several failed attempts with the `systemd` format — see `docs/rpi-image-gen-notes.md`.
 
-**MPF 0.80 images are not yet verified on hardware** (they build, and `mpf --help` and `godot --headless --version` are checked at build time). To confirm on a Pi: `cage -- mpf both` from tty1 and from SSH with a real GMC project, Godot selecting Wayland under cage, and audio output.
+**MPF 0.80 confirmed on real Pi 5 hardware**: the image works, and a GMC project exported from the Godot editor ran on the Pi with MPF connecting to it and driving it. Running a project from source needs its assets imported first (see `gmc-run` above). Not yet confirmed on hardware: `gmc-run` itself, audio, and the Pi 4.
 
 **Pi 4 is not yet verified on hardware.** The rootfs is identical across boards apart from the kernel and boot firmware, and nothing in this repo hardcodes a block device — root discovery goes through a fixed MBR disk signature and PARTUUIDs, which is board-independent — so it is expected to work, but it has not been flashed and booted. Also untested: whether a Pi 4 has enough headroom for `mpf-mc`, or for Godot, at runtime.
 

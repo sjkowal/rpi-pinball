@@ -605,10 +605,24 @@ This time `include:` is the right tool. For the *model* split it was rejected (s
 
 The entry name is `PinbOS <tag> · MPF 0.80 · Godot MC (Raspberry Pi 5)`, and the 0.80 description carries the Godot version. Each entry records `"mpf_line"`, which Imager ignores as an unknown key. The sort is `(release_date, model, MPF line)` with newest first. Manifests from before this change have no `mpf_line`; the line is parsed from their `-mpf<NN>-` URL, falling back to 0.57.
 
+### Running from source needs `godot --import` (found on hardware)
+
+Found on real Pi 5 hardware on 2026-09-29. The image worked, and a project **exported** in the Godot editor ran on the Pi with MPF connecting to it. The same project run **from source** (the way `mpf both` runs it) did not work until its assets had been imported.
+
+This is how Godot behaves, confirmed with the image's own 4.7.2 `linux.arm64` binary in an arm64 container:
+- **Running a project never imports its assets.** A project with a PNG and no `.godot/` folder fails with `No loader found for resource: res://icon.png`, and running it creates no `.godot/`. After `godot --headless --import` the same run loads the texture. A PNG added later fails again until the next import. The editor, and `--import` (which is the editor run headless), are the only things that import.
+- **A fresh checkout of a real GMC project needs two passes.** On a project with GMC 1.0.0's addon, its plugin enabled and its `MPF` autoload registered, the first `--import` prints 17 errors: GMC's editor plugin (`mpf_gmc_editor.gd`) preloads its own `.svg` icons before they've been imported. The second pass prints 0.
+- **`--import` exits 0 regardless.** That includes all of the above and a deliberately corrupt `.png`.
+- **An import with nothing new** took about 2 s in the container.
+
+Hence `/usr/local/bin/gmc-run` (`pinball/assets/gmc-run`, installed by `pinball-gmc`). It `cd`s into the machine folder and finds the Godot project the same way `mpf both` does (the folder itself, or `gmc.cfg`'s `[cli] gmc_project_path`). If there's no `.godot/` it runs one silent `--import` pass, then a visible one. It then `exec`s `cage -- mpf both "$@"`, or plain `mpf both` if it's already inside a Wayland or X session. The script was tested against the real 4.7.2 binary and GMC addon, with stand-ins for `mpf` and `cage`: a fresh project ended with 0 errors shown.
+
+Exporting is *not* required for development: the image ships the full editor build. An export has no `project.godot`, so `mpf both` refuses it (`both.py` checks for that file). An exported app has to be started under `cage` by hand, next to plain `mpf`.
+
 ### Not verified on hardware
 
-Builds are checked with `mpf --help` and `godot --headless --version` in the chroot. Still to confirm on a Pi 5 and then a Pi 4, with a real GMC project in `~/machine`:
-- `cage -- mpf both` from tty1 **and** from SSH.
+Builds are checked with `mpf --help` and `godot --headless --version` in the chroot. The Pi 5 has run an exported GMC project with MPF connected. Still to confirm on a Pi 5 and then a Pi 4, with a real GMC project in `~/machine`:
+- `gmc-run` (import + `cage -- mpf both`) from tty1 **and** from SSH.
 - Godot picks Wayland under cage with no `DISPLAY`. If not, make `/usr/local/bin/godot` a wrapper that adds `--display-driver wayland`.
 - The Vulkan (Mobile) and Compatibility renderers both work.
 - Audio comes out.

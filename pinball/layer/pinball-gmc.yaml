@@ -15,6 +15,13 @@
 #  compositor (the pattern rpi-image-gen's own examples/webkiosk uses), so
 #  `cage -- mpf both` runs MPF with Godot full screen and nothing else.
 #
+#  Running a Godot project from source (which `mpf both` does) never
+#  imports its assets -- only the editor or `godot --headless --import`
+#  does -- so images, sounds and fonts fail to load until that has run, and
+#  again after any asset changes. /usr/local/bin/gmc-run
+#  (pinball/assets/gmc-run) does the import and then `cage -- mpf both`, so
+#  the step cannot be forgotten.
+#
 #  seatd gives cage a seat whether it is started from the tty1 console or
 #  over SSH (which has no logind seat). Debian's unit runs `seatd -g video`,
 #  and the login user is already in video/render/input/audio via
@@ -22,7 +29,7 @@
 #
 #  Nothing here writes to the read-only root at runtime: Godot keeps its
 #  user data and shader cache under ~/.local/share/godot, i.e. on DATA.
-# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Version: 1.1.0
 # X-Env-Layer-Requires: pinball-mpf
 #
 # X-Env-VarPrefix: gmc
@@ -95,3 +102,6 @@ mmdebstrap:
       # this rootfs (missing library, wrong architecture).
       chroot $1 env HOME=/root godot --headless --version
     - $BDEBSTRAP_HOOKS/enable-units "$1" seatd
+    - |-
+      # Import assets, then `cage -- mpf both` -- see the header above.
+      install -m 755 /home/imagegen/pinball/assets/gmc-run $1/usr/local/bin/gmc-run
