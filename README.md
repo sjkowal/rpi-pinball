@@ -126,6 +126,12 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner; all four images 
 
   **You don't need to export for the Pi while developing.** The image ships the full Godot editor build, which runs the project from source. An export (made with Godot's Linux arm64 export templates) starts faster and has its assets already packed, so it's worth it for a finished machine. An export has no `project.godot`, though, so `mpf both`/`gmc-run` can't launch it: start the exported app under `cage` yourself and run plain `mpf` alongside it.
 
+  **Use MSDF fonts.** Under the Vulkan renderer on a Pi 5, text in the default font setup comes out with chunks missing from each letter, even though images and the splash screens are fine and the same project looks right on a desktop. Switching fonts to Multichannel Signed Distance Field fixes it (confirmed on a Pi 5):
+  - For Godot's default font: **Project Settings → GUI → Theme → Default Font Multichannel Signed Distance Field** (turn on *Advanced Settings* to see it).
+  - For each `.ttf`/`.otf` in the project: select it, tick **Multichannel Signed Distance Field** in the **Import** dock, then **Reimport**.
+
+  Then re-import on the Pi (`gmc-run` does it). MSDF text also stays sharp at any size, which suits a full-screen display.
+
   Edit your project with **Godot 4.7.x**, the version on the image. Prefer the *Mobile* or *Compatibility* renderer. Godot plays only OGG Theora video, decoded in software, which the Pi does poorly, so the GMC docs recommend a Pi for DMD-style games.
 - No systemd service — MPF is started manually while developing, not on boot.
 

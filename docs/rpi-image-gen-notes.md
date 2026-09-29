@@ -619,6 +619,16 @@ Hence `/usr/local/bin/gmc-run` (`pinball/assets/gmc-run`, installed by `pinball-
 
 Exporting is *not* required for development: the image ships the full editor build. An export has no `project.godot`, so `mpf both` refuses it (`both.py` checks for that file). An exported app has to be started under `cage` by hand, next to plain `mpf`.
 
+### Garbled text under Vulkan on the Pi 5: use MSDF fonts (found on hardware)
+
+Found on real Pi 5 hardware on 2026-09-29, running Godot 4.7.2 with `Vulkan 1.2.289 - Forward Mobile - V3D 7.1.7.0` on Raspberry Pi's Mesa 24.2.8 (`mesa-vulkan-drivers 24.2.8-1~bpo12+rpt5`):
+- **Symptom:** a GMC project's label text came out with chunks missing from each glyph. The text was the right size, in the right place, and what remained was sharp. The Godot and MPF splash screens, and the same project on a Mac, rendered correctly.
+- **Diagnosis:** that pattern rules out scaling and stretch settings. It points to the glyph cache texture: for ordinary (non-MSDF) fonts Godot keeps a small single-channel atlas and uploads regions of it as new glyphs are needed, and those partial updates are what come out wrong through `v3dv`. Splash screens are whole images uploaded once.
+- **Fix:** switching the project's fonts to **Multichannel Signed Distance Field** fixed the text. That's the default font's project setting (`gui/theme/default_font_multichannel_signed_distance_field`) and the per-font import option. MSDF uses a different, full-colour atlas.
+- **Not pinned down:** whether a newer Mesa fixes this path. Raising it upstream (Mesa `v3dv` or Godot) would need a minimal reproduction.
+
+**The Compatibility (OpenGL ES) renderer does not work under cage yet.** `--rendering-driver opengl3_es` fails with `Can't create an EGL display`: `eglGetPlatformDisplay(EGL_PLATFORM_WAYLAND_KHR, ...)` returns `EGL_NO_DISPLAY` with no EGL error. Mesa's EGL vendor (`libEGL_mesa.so.0`, `50_mesa.json`) is present and registered, and Godot passes no display attributes. The `DRI_PRIME` lines before it come from Godot's GPU probe, which found no discrete GPU and changed nothing. Two things are untested: Mesa's own log (`EGL_LOG_LEVEL=debug`), and the X11 route through cage's Xwayland. Godot tries X11 first, and on this image that fails only because `libxcursor1`, `libxi6` and `libxinerama1` aren't installed. With MSDF working, Vulkan is fine for now.
+
 ### Not verified on hardware
 
 Builds are checked with `mpf --help` and `godot --headless --version` in the chroot. The Pi 5 has run an exported GMC project with MPF connected. Still to confirm on a Pi 5 and then a Pi 4, with a real GMC project in `~/machine`:
