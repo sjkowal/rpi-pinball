@@ -12,7 +12,8 @@ by the local workflow (``imager-repo.sh``) and the hosted one
 Subcommands
   entry   Hash one built image (raw .img, optionally its .img.xz) and emit a
           complete single-image repository document (imager.devices block +
-          os_list with one entry). CI stores one of these per model as a
+          os_list with one entry). CI stores one of these per (model, MPF
+          line) as a
           ``pinbos-mpf<NN>-rpi<N>-<tag>.manifest.json`` asset, so any single
           image is usable with ``rpi-imager --repo <asset url>`` on its own.
   repo    Combine any number of entry files into a complete os_list.json
@@ -27,6 +28,7 @@ import datetime as _dt
 import hashlib
 import json
 import os
+import re
 import sys
 
 # Supported Pi models: build.sh model token -> (Imager device tag, human name).
@@ -40,6 +42,18 @@ MODELS = {
 # share a release date, so one release's two images stay adjacent instead of
 # interleaving with an older release's.
 MODEL_ORDER = ["pi5", "pi4"]
+
+# Supported MPF release lines -> (media controller shown in Imager, whether
+# the image ships Godot). ADDING A LINE: this table, MPF_LINES in
+# scripts/image-name.sh, the line's pinball/pinball-mpf<NN>.yaml, and the CI
+# matrix.
+MPF_LINES = {
+    "0.57": ("mpf-mc", False),
+    "0.80": ("Godot MC", True),
+}
+# Manifests from releases made before the MPF line was recorded in them
+# (v0.3.0 and earlier) were all 0.57.
+LEGACY_MPF_LINE = "0.57"
 
 INIT_FORMAT = "rpi-preseed"
 # Correct for every model here: Pi 4 is Cortex-A72 and Pi 5 Cortex-A76, both
@@ -65,15 +79,28 @@ IMAGER_DEVICES = [
 ]
 
 
-def default_description(model):
+def mpf_label(mpf):
+    return f"MPF {mpf} \u00b7 {MPF_LINES[mpf][0]}"
+
+
+def default_description(model, mpf, godot_version=None):
+    mc, ships_godot = MPF_LINES[mpf]
+    # Callers may pass the pin unconditionally; it only means something for
+    # a line that actually ships Godot.
+    if godot_version and ships_godot:
+        mc = f"{mc}, Godot {godot_version}"
     return (
-        f"Custom MPF-based {MODELS[model][1]} pinball image (rpi-pinball project)"
+        f"Custom MPF {mpf} ({mc}) {MODELS[model][1]} pinball image"
+        " (rpi-pinball project)"
     )
 
 
-def default_name(model, version=None):
+def default_name(model, mpf, version=None):
     human = MODELS[model][1]
-    return f"{DEFAULT_NAME} {version} ({human})" if version else f"{DEFAULT_NAME} ({human})"
+    label = mpf_label(mpf)
+    if version:
+        return f"{DEFAULT_NAME} {version} \u00b7 {label} ({human})"
+    return f"{DEFAULT_NAME} \u00b7 {label} ({human})"
 
 
 def _model_rank(entry):
@@ -83,6 +110,22 @@ def _model_rank(entry):
         if MODELS[model][0] in tags:
             return index
     return len(MODEL_ORDER)
+
+
+def _mpf_line_of(entry):
+    """An entry's MPF line: recorded, else from its pinbos-mpf<NN>- URL."""
+    if entry.get("mpf_line"):
+        return entry["mpf_line"]
+    m = re.search(r"-mpf(\d+)-", entry.get("url", ""))
+    return f"0.{m.group(1)}" if m else LEGACY_MPF_LINE
+
+
+def _mpf_rank(entry):
+    """Sortable form of the MPF line: 0.80 -> (0, 80)."""
+    try:
+        return tuple(int(p) for p in _mpf_line_of(entry).split("."))
+    except ValueError:
+        return ()
 
 
 def sha256_and_size(path):
@@ -95,16 +138,17 @@ def sha256_and_size(path):
     return h.hexdigest(), size
 
 
-def build_entry(img, url, model, xz=None, name=None, description=None,
-                release_date=None, website=None, version=None):
+def build_entry(img, url, model, mpf, xz=None, name=None, description=None,
+                release_date=None, website=None, version=None,
+                godot_version=None):
     extract_sha, extract_size = sha256_and_size(img)
     if xz:
         dl_sha, dl_size = sha256_and_size(xz)
     else:
         dl_sha, dl_size = extract_sha, extract_size
     return {
-        "name": name or default_name(model, version),
-        "description": description or default_description(model),
+        "name": name or default_name(model, mpf, version),
+        "description": description or default_description(model, mpf, godot_version),
         "icon": "",
         "url": url,
         "extract_size": extract_size,
@@ -118,17 +162,22 @@ def build_entry(img, url, model, xz=None, name=None, description=None,
         "init_format": INIT_FORMAT,
         "architecture": ARCHITECTURE,
         "website": website or DEFAULT_WEBSITE,
+        # Not an Imager field (Imager ignores unknown keys); lets build_repo
+        # order a release's entries without parsing names.
+        "mpf_line": mpf,
     }
 
 
 def build_repo(entries, icon=None):
-    # Newest release first, and within one release date the models in
-    # MODEL_ORDER (negated so reverse=True still puts pi5 ahead of pi4). Sorting
-    # on name instead would interleave releases once a release carries more than
-    # one model. Imager displays entries in document order.
+    # Newest release first; within one release date the models in
+    # MODEL_ORDER (negated so reverse=True still puts pi5 ahead of pi4), and
+    # within a model the newest MPF line first. Imager filters by board, so a
+    # Pi 5 user sees each release's MPF 0.80 entry directly above its 0.57
+    # one. Sorting on name instead would interleave releases. Imager displays
+    # entries in document order.
     entries = sorted(
         entries,
-        key=lambda e: (e.get("release_date", ""), -_model_rank(e)),
+        key=lambda e: (e.get("release_date", ""), -_model_rank(e), _mpf_rank(e)),
         reverse=True,
     )
     if icon is not None:
@@ -148,8 +197,9 @@ def write_json(obj, out):
 
 
 def cmd_entry(a):
-    entry = build_entry(a.img, a.url, a.model, a.xz, a.name, a.description,
-                        a.release_date, a.website, a.version)
+    entry = build_entry(a.img, a.url, a.model, a.mpf, a.xz, a.name,
+                        a.description, a.release_date, a.website, a.version,
+                        a.godot_version)
     # Always a full document, never a bare entry: without the imager.devices
     # block Imager's hardware filter drops the entry and the list is empty.
     write_json(build_repo([entry]), a.output)
@@ -168,9 +218,11 @@ def cmd_repo(a):
 def cmd_local(a):
     img = os.path.abspath(a.img)
     entry = build_entry(
-        img, "file://" + img, a.model,
-        name=a.name or f"{DEFAULT_NAME} (dev build, {MODELS[a.model][1]})",
-        description=f"{default_description(a.model)} -- {os.path.basename(img)}",
+        img, "file://" + img, a.model, a.mpf,
+        name=a.name or (f"{DEFAULT_NAME} (dev build, {mpf_label(a.mpf)}, "
+                        f"{MODELS[a.model][1]})"),
+        description=(f"{default_description(a.model, a.mpf, a.godot_version)}"
+                     f" -- {os.path.basename(img)}"),
     )
     write_json(build_repo([entry]), a.output)
 
@@ -185,6 +237,10 @@ def main(argv=None):
     e.add_argument("--url", required=True, help="download URL for the image")
     e.add_argument("--model", required=True, choices=sorted(MODELS),
                    help="Pi model this image was built for")
+    e.add_argument("--mpf", required=True, choices=sorted(MPF_LINES),
+                   help="MPF release line this image was built with")
+    e.add_argument("--godot-version",
+                   help="pinned Godot version; shown in the description of lines that ship Godot")
     e.add_argument("--version", help="version shown in the entry name, e.g. v0.3.0")
     e.add_argument("--name")
     e.add_argument("--description")
@@ -203,6 +259,9 @@ def main(argv=None):
     l.add_argument("--img", required=True)
     l.add_argument("--model", required=True, choices=sorted(MODELS),
                    help="Pi model this image was built for")
+    l.add_argument("--mpf", required=True, choices=sorted(MPF_LINES),
+                   help="MPF release line this image was built with")
+    l.add_argument("--godot-version")
     l.add_argument("--name")
     l.add_argument("-o", "--output")
     l.set_defaults(func=cmd_local)

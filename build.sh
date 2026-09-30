@@ -6,20 +6,38 @@ BUILD_ID=${RANDOM}
 RPI_BUILD_SVC="rpi_imagegen"
 RPI_BUILD_USER="imagegen"
 RPI_CUSTOMIZATIONS_DIR="pinball"
-RPI_CONFIG="pinball"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NAMER="${ROOT}/scripts/image-name.sh"
 
-# Which Raspberry Pi to build for. One run builds one model. The supported
-# list and the artifact naming rule both live in scripts/image-name.sh.
+# Which Raspberry Pi and which MPF release line to build for. One run builds
+# one (model, line) pair. The supported lists and the artifact naming rule
+# all live in scripts/image-name.sh.
 PI_MODEL="${1:-${PI_MODEL:-pi5}}"
+# Exported: image-name.sh reads it for both the config and the filename, so
+# the two cannot disagree. Empty means image-name.sh's default line.
+export MPF_VERSION="${2:-${MPF_VERSION:-}}"
+
+usage() {
+  echo "   Usage: $0 [$("$NAMER" --models | tr ' ' '|')] [$("$NAMER" --mpf-lines | tr ' ' '|')]"
+  echo "   (defaults: pi5 and MPF $(MPF_VERSION= "$NAMER" --mpf-line); PI_MODEL= / MPF_VERSION= also work)"
+}
 
 if ! echo " $("$NAMER" --models) " | grep -q " ${PI_MODEL} "; then
   echo "🛑 Unknown Pi model '${PI_MODEL}'."
-  echo "   Usage: $0 [$("$NAMER" --models | tr ' ' '|')]   (default: pi5; PI_MODEL= also works)"
+  usage
   exit 2
 fi
+
+# The MPF line, and its config (pinball-mpf57.yaml, pinball-mpf80.yaml),
+# which includes the shared pinball.yaml and sets mpf.version + the media
+# controller layer. image-name.sh validates the line and that the file's
+# mpf.version agrees with it.
+if ! MPF_LINE="$("$NAMER" --mpf-line)"; then
+  usage
+  exit 2
+fi
+RPI_CONFIG_FILE="$("$NAMER" --config)"
 
 # The upstream rpi-image-gen device layer for this model (pi5 -> rpi5). Passed
 # as a variable override rather than edited into pinball.yaml, so one config
@@ -31,16 +49,10 @@ RPI_DEVICE_LAYER="$("$NAMER" --device-layer "${PI_MODEL}")"
 # a plain local `./build.sh` gets the same self-describing name derived from
 # the model, the MPF release line and `git describe`:
 #   pinball/deploy/pinbos-mpf57-rpi5-v0.3.0.img
+#   pinball/deploy/pinbos-mpf80-rpi4-v0.3.0.img   (./build.sh pi4 0.80)
 RPI_IMAGE_OUT_DIR="${RPI_IMAGE_OUT_DIR:-./${RPI_CUSTOMIZATIONS_DIR}/deploy}"
 RPI_IMAGE_OUT_NAME="${RPI_IMAGE_OUT_NAME:-$("$NAMER" "${PI_MODEL}").img}"
 OUT="${RPI_IMAGE_OUT_DIR}/${RPI_IMAGE_OUT_NAME}"
-
-# Forwarded only when set, so the image's MPF version and the mpf<NN> token in
-# the filename above can never disagree.
-MPF_OVERRIDE=""
-if [ -n "${MPF_VERSION:-}" ]; then
-  MPF_OVERRIDE=" IGconf_mpf_version=${MPF_VERSION}"
-fi
 
 # `docker compose exec` allocates a TTY by default. CI has none ("the input
 # device is not a TTY"), and a TTY would also inject \r into captured output.
@@ -60,7 +72,7 @@ ensure_cleanup() {
 # Set the trap to execute the ensure_cleanup function on EXIT
 trap ensure_cleanup EXIT
 
-echo "🎯 Target: ${PI_MODEL} (device layer ${RPI_DEVICE_LAYER}) -> ${RPI_IMAGE_OUT_NAME}"
+echo "🎯 Target: ${PI_MODEL} (device layer ${RPI_DEVICE_LAYER}), MPF ${MPF_LINE} (${RPI_CONFIG_FILE}) -> ${RPI_IMAGE_OUT_NAME}"
 echo "🔨 Building Docker image with rpi-image-gen to create ${RPI_BUILD_SVC}..."
 docker compose build ${RPI_BUILD_SVC}
 
@@ -74,8 +86,10 @@ docker compose run --name ${RPI_BUILD_SVC}-${BUILD_ID} -d ${RPI_BUILD_SVC}
 # Variable overrides go after `--` as IGconf_<section>_<key>=value pairs; they
 # beat the config file. `IGconf_device_layer` is specifically what the CLI's own
 # collect_layers() reads to decide which device layer to apply, so this is all
-# it takes to retarget the build at another Pi.
-docker compose exec ${EXEC_FLAGS} ${RPI_BUILD_SVC} bash -c "cd /home/${RPI_BUILD_USER}/rpi-image-gen && ./rpi-image-gen build -S /home/${RPI_BUILD_USER}/${RPI_CUSTOMIZATIONS_DIR}/ -c /home/${RPI_BUILD_USER}/${RPI_CUSTOMIZATIONS_DIR}/${RPI_CONFIG}.yaml -- IGconf_device_layer=${RPI_DEVICE_LAYER}${MPF_OVERRIDE}"
+# it takes to retarget the build at another Pi. The MPF version is NOT passed
+# here: it comes from the per-line config's mpf.version, the same line
+# image-name.sh checked when naming the output.
+docker compose exec ${EXEC_FLAGS} ${RPI_BUILD_SVC} bash -c "cd /home/${RPI_BUILD_USER}/rpi-image-gen && ./rpi-image-gen build -S /home/${RPI_BUILD_USER}/${RPI_CUSTOMIZATIONS_DIR}/ -c /home/${RPI_BUILD_USER}/${RPI_CUSTOMIZATIONS_DIR}/${RPI_CONFIG_FILE} -- IGconf_device_layer=${RPI_DEVICE_LAYER}"
 
 CID=$(docker ps -a --filter "name=${RPI_BUILD_SVC}-${BUILD_ID}" --format "{{.ID}}" | head -n 1)
 
@@ -121,4 +135,4 @@ BUILT_IMG=$(printf '%s\n' "$BUILT_IMGS" | head -n 1)
 mkdir -p "${RPI_IMAGE_OUT_DIR}"
 docker cp "${CID}:${BUILT_IMG}" "${OUT}"
 
-echo "🚀 Completed ${PI_MODEL} build -> ${OUT}"
+echo "🚀 Completed ${PI_MODEL} / MPF ${MPF_LINE} build -> ${OUT}"

@@ -1,28 +1,29 @@
 # METABEGIN
 # X-Env-Layer-Name: pinball-mpf
 # X-Env-Layer-Category: app-misc
-# X-Env-Layer-Desc: Mission Pinball Framework (MPF) + mpf-mc installed into a
-#  dedicated venv at /opt/mpf/venv, with P-ROC/P3-ROC hardware support. The
-#  release line is set by the `version` variable below. No machine folder
-#  (game code) baked in, and MPF is not started automatically — ssh in and
-#  run `mpf both <machine_path>` manually once a machine folder is added.
-# X-Env-Layer-Version: 1.1.0
+# X-Env-Layer-Desc: Mission Pinball Framework (MPF) core installed into a
+#  dedicated venv at /opt/mpf/venv. Media-controller-agnostic: the media
+#  controller comes from a separate layer chosen by the MPF line's config
+#  (pinball-mpf-mc for 0.57, pinball-gmc for 0.80). No machine folder (game
+#  code) baked in, and MPF is not started automatically -- ssh in and run
+#  `mpf both <machine_path>` manually once a machine folder is added.
+# X-Env-Layer-Version: 2.0.0
 # X-Env-Layer-Requires: device-user-admin
 #
 # X-Env-VarPrefix: mpf
 #
-# X-Env-Var-version: 0.57
+# X-Env-Var-version:
 # X-Env-Var-version-Desc: MPF release line to install, as a pip
 #  compatible-release pin (mpf~=<version>.0), so the exact patch floats within
-#  the series. THIS LINE IS THE SINGLE SOURCE OF TRUTH FOR THE MPF VERSION:
-#  the install hook below uses it, and scripts/image-name.sh greps it (on the
-#  host, outside the container) to build the mpf<NN> token in artifact
-#  filenames — so a released file can never claim an MPF version the image
-#  does not have. Override for a one-off with `MPF_VERSION=0.60 ./build.sh`,
-#  which build.sh forwards as IGconf_mpf_version.
-# X-Env-Var-version-Required: n
+#  the series. Deliberately has no default: it is set by `mpf.version` in the
+#  per-line config (pinball/pinball-mpf<NN>.yaml), which is the single source
+#  of truth -- scripts/image-name.sh reads the same line to build the
+#  mpf<NN> token in artifact filenames, so a released file can never claim
+#  an MPF version the image does not have. Building the shared base
+#  pinball.yaml directly therefore fails here, by design.
+# X-Env-Var-version-Required: y
 # X-Env-Var-version-Valid: regex:^[0-9]+\.[0-9]+$
-# X-Env-Var-version-Set: y
+# X-Env-Var-version-Set: n
 # METAEND
 ---
 mmdebstrap:
@@ -38,18 +39,6 @@ mmdebstrap:
     - libbz2-dev
     - libsqlite3-dev
     - liblzma-dev
-    - tk-dev
-    - libgstreamer1.0-dev
-    - libgstreamer-plugins-base1.0-dev
-    - libsdl2-dev
-    - libsdl2-image-dev
-    - libsdl2-mixer-dev
-    - libavcodec-dev
-    - libavformat-dev
-    - libswscale-dev
-    - libavdevice-dev
-    - libavfilter-dev
-    - cmake
     - build-essential
     - pkg-config
     - libftdi1-2
@@ -59,11 +48,10 @@ mmdebstrap:
     - chroot $1 /opt/mpf/venv/bin/pip install --upgrade pip
     - |-
       # Pinned to a release line, not an exact patch (see
-      # docs/rpi-image-gen-notes.md) — mpf-mc only, no mpf-monitor (needs
-      # PyQt6, known Pi compatibility issues). The version comes from this
-      # layer's own `version` variable, declared above, which is also what
-      # names the built image.
-      chroot $1 /opt/mpf/venv/bin/pip install "mpf~=$IGconf_mpf_version.0" "mpf-mc~=$IGconf_mpf_version.0"
+      # docs/rpi-image-gen-notes.md). MPF core only -- the media controller
+      # (mpf-mc for 0.57, Godot/GMC for 0.80) is its own layer. No
+      # mpf-monitor (needs PyQt6, known Pi compatibility issues).
+      chroot $1 /opt/mpf/venv/bin/pip install "mpf~=$IGconf_mpf_version.0"
     - |-
       # Work around a real upstream bug in mpf itself (reproduced and
       # verified independently of this image, on a clean
@@ -72,10 +60,22 @@ mmdebstrap:
       # DistributionNotFound for "ruamel.yaml.clib>=0.2.7" even though pip
       # installed it correctly. Duplicate its dist-info dir under its dotted
       # name — purely additive, doesn't touch any installed files.
-      chroot $1 bash -c '
+      # Still needed on 0.80: its CLI loader still imports pkg_resources and
+      # it still pins setuptools~=72.2. Skipped (not failed) if a future
+      # ruamel.yaml.clib stops shipping the underscored dist-info; the
+      # `mpf --help` check below is what decides whether the CLI works.
+      chroot $1 bash -e -c '
         cd /opt/mpf/venv/lib/python3.*/site-packages
-        cp -r ruamel_yaml_clib-*.dist-info "$(ls -d ruamel_yaml_clib-*.dist-info | sed "s/^ruamel_yaml_clib/ruamel.yaml.clib/")"
+        for d in ruamel_yaml_clib-*.dist-info; do
+          [ -d "$d" ] || continue
+          dotted="$(printf "%s" "$d" | sed "s/^ruamel_yaml_clib/ruamel.yaml.clib/")"
+          [ -e "$dotted" ] || cp -r "$d" "$dotted"
+        done
       '
+    - |-
+      # Fail the build, not the first boot, if the CLI cannot load. Run in
+      # a clean env: the chroot has no $HOME for the build user.
+      chroot $1 env HOME=/root /opt/mpf/venv/bin/mpf --help > /dev/null
     - |-
       # Let the login user manage the venv later (add packages for their
       # machine folder, etc.) without needing sudo.
