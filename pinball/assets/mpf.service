@@ -1,0 +1,28 @@
+[Unit]
+Description=Mission Pinball Framework
+Documentation=file:///etc/default/pinball-mpf
+After=sound.target systemd-user-sessions.service
+# MPF 0.80's cage session needs seatd for the display; harmless elsewhere
+# (Wants= of a unit that isn't installed is ignored).
+Wants=seatd.service
+After=seatd.service
+
+[Service]
+Type=simple
+# The login user. A UID rather than a name: Raspberry Pi Imager renames the
+# image's placeholder user at first boot, keeping UID 1000. systemd applies
+# that user's own groups (dialout, audio, video, render, input, plugdev).
+User=1000
+Group=1000
+EnvironmentFile=-/etc/default/pinball-mpf
+ExecStart=/usr/local/bin/pinball-mpf-launch
+# /run/mpf: XDG_RUNTIME_DIR for cage on MPF 0.80 images.
+RuntimeDirectory=mpf
+RuntimeDirectoryMode=0700
+Restart=always
+RestartSec=5
+# 75 = no machine folder, or autostart off (see pinball-mpf-launch).
+RestartPreventExitStatus=75
+
+[Install]
+WantedBy=multi-user.target

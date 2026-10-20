@@ -158,6 +158,12 @@ layer:
   # derives build order from Requires). Without it MPF silently disables the
   # P-ROC platform on Linux -- see that layer's header.
   proc: pinball-proc
+  # MPF at boot, off until `pinball-autostart on` for a machine folder.
+  # Shared by both MPF lines (it picks `mpf both` or `gmc-run` itself).
+  mpf_service: pinball-mpf-service
+  # Fallback static IP on eth0 (192.168.50.2/24) when DHCP doesn't answer,
+  # for a laptop on a direct cable.
+  net_fallback: pinball-net-fallback
   bootdev_fix: pinball-bootdev-fix
   # DISABLED AGAIN (2026-09-09): re-enabled on 2026-09-08 after the
   # boot-crash/Imager-customisation saga (docs/rpi-image-gen-notes.md) was

@@ -1,0 +1,68 @@
+#!/bin/bash
+# pinball-net-fallback -- give eth0 a fallback static address when DHCP
+# doesn't answer, e.g. a laptop on a direct cable at a show, with no router.
+#
+# systemd-networkd can't do "static only if DHCP fails" by itself, so this
+# watches the link. After DHCP_TIMEOUT seconds of carrier with no DHCP lease
+# it writes a runtime networkd drop-in for the interface's .network file and
+# reloads networkd; once a lease arrives it removes the drop-in again.
+#   - The drop-in lives in /run (tmpfs): works on the read-only root, and is
+#     gone at reboot.
+#   - networkd owns the address, so it isn't dropped as a "foreign" address
+#     when networkd reconfigures the link.
+# networkd merges <name>.network.d/ drop-ins from /etc, /run and /usr/lib, so
+# /run/systemd/network/01-eth0.network.d/ applies to the image's
+# /etc/systemd/network/01-eth0.network.
+#
+# Settings: /etc/default/pinball-network. Installed by the pinball-net-fallback
+# layer; runs as pinball-net-fallback.service.
+set -u
+
+IFACE=eth0
+NETWORK_FILE=01-eth0.network
+FALLBACK_ADDRESS=192.168.50.2/24
+DHCP_TIMEOUT=20
+POLL_INTERVAL=5
+# shellcheck source=/dev/null
+[ -r /etc/default/pinball-network ] && . /etc/default/pinball-network
+
+DROPIN_DIR="/run/systemd/network/${NETWORK_FILE}.d"
+DROPIN="${DROPIN_DIR}/50-pinball-fallback.conf"
+
+has_carrier() { [ "$(cat "/sys/class/net/${IFACE}/carrier" 2>/dev/null)" = "1" ]; }
+# DHCP leases carry the "dynamic" flag; the fallback and IPv4LL addresses don't.
+has_dhcp()    { ip -4 -o addr show dev "$IFACE" scope global dynamic | grep -q inet; }
+
+apply() {
+    networkctl reload
+    networkctl reconfigure "$IFACE"
+}
+
+enable_fallback() {
+    [ -f "$DROPIN" ] && return
+    mkdir -p "$DROPIN_DIR"
+    printf '[Network]\nAddress=%s\n' "$FALLBACK_ADDRESS" > "$DROPIN"
+    apply
+    echo "No DHCP lease on ${IFACE} after ${DHCP_TIMEOUT}s; using fallback ${FALLBACK_ADDRESS}"
+}
+
+disable_fallback() {
+    [ -f "$DROPIN" ] || return
+    rm -f "$DROPIN"
+    apply
+    echo "DHCP lease acquired on ${IFACE}; removed fallback ${FALLBACK_ADDRESS}"
+}
+
+waited=0
+while true; do
+    if ! has_carrier; then
+        waited=0                      # no cable: do nothing, leave current state
+    elif has_dhcp; then
+        waited=0
+        disable_fallback
+    else
+        waited=$((waited + POLL_INTERVAL))
+        [ "$waited" -ge "$DHCP_TIMEOUT" ] && enable_fallback
+    fi
+    sleep "$POLL_INTERVAL"
+done

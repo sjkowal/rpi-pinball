@@ -1,0 +1,13 @@
+[Unit]
+Description=Fallback static IP on eth0 when DHCP is unavailable
+After=systemd-networkd.service
+Requires=systemd-networkd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/pinball-net-fallback
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,39 @@
+# /etc/default/pinball-mpf -- settings for mpf.service (MPF at boot).
+#
+# mpf.service is enabled on every image but only runs MPF when autostart is
+# switched on for the machine folder -- no maintenance mode or sudo needed:
+#   pinball-autostart on       # creates <machine folder>/.autostart and starts MPF
+#   pinball-autostart off      # removes it and stops MPF
+#   pinball-autostart status
+# For bench work without turning it off: `sudo systemctl stop mpf`.
+#
+# This file is on the read-only root: edit with `sudo pinball-rw`, then
+# `sudo systemctl restart mpf` and `sudo pinball-ro`.
+
+# Machine folder. Empty means ~/machine of the login user (UID 1000), which
+# keeps working after Raspberry Pi Imager renames that user.
+MACHINE_DIR=
+
+# What to run:
+#   auto  - `gmc-run` on MPF 0.80 images (import Godot assets, then
+#           `cage -- mpf both`), `mpf both` on 0.57 images
+#   both  - `mpf both`  (MPF + media controller)
+#   game  - `mpf game`  (MPF core only, no media controller)
+#   gmc   - `gmc-run`
+MPF_MODE=auto
+
+# -t  no ASCII text UI (a service has no terminal; the flag disables it)
+# -P  production mode: waits for hardware on start, exits if startup fails
+#     (systemd restarts it)
+# -A  don't write config cache files
+MPF_ARGS="-t -P -A"
+
+# Optional: device paths to wait for before starting MPF (space-separated),
+# e.g. "/dev/serial/by-id/usb-...-if00". Use stable names, not ttyACM*.
+WAIT_FOR_DEVICES=""
+DEVICE_TIMEOUT=30
+
+# Audio for MPF-MC (SDL), MPF 0.57. Card name from `aplay -l`. Leave unset to
+# use the ALSA default device.
+#SDL_AUDIODRIVER=alsa
+#AUDIODEV=plughw:CARD=Device

@@ -1,0 +1,64 @@
+#!/bin/bash
+# pinball-mpf-launch -- ExecStart of mpf.service: start MPF for the machine
+# folder, if autostart is switched on for it. A wrapper because systemd
+# doesn't allow a variable as the program path in ExecStart.
+#
+# Exit status 75 means "not configured" (no machine folder, or autostart off):
+# mpf.service lists it in RestartPreventExitStatus=, so systemd does not
+# restart the service in a loop. Anything else -- MPF exiting, crashing, or
+# failing to find its hardware in production mode (-P) -- is restarted.
+#
+# Settings come from /etc/default/pinball-mpf (mpf.service's
+# EnvironmentFile). Installed by the pinball-mpf-service layer.
+set -eu
+
+NOT_CONFIGURED=75
+
+: "${MACHINE_DIR:=}"
+: "${MPF_MODE:=auto}"
+: "${MPF_ARGS:=-t -P -A}"
+: "${WAIT_FOR_DEVICES:=}"
+: "${DEVICE_TIMEOUT:=30}"
+
+# systemd sets HOME for User= services; fall back to the passwd entry.
+HOME="${HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)}"
+[ -n "$MACHINE_DIR" ] || MACHINE_DIR="$HOME/machine"
+
+if [ ! -d "$MACHINE_DIR" ]; then
+    echo "No machine folder at $MACHINE_DIR; not starting MPF. Clone one there, or set MACHINE_DIR in /etc/default/pinball-mpf."
+    exit "$NOT_CONFIGURED"
+fi
+if [ ! -e "$MACHINE_DIR/.autostart" ]; then
+    echo "Autostart is off for $MACHINE_DIR; not starting MPF. Turn it on with: pinball-autostart on"
+    exit "$NOT_CONFIGURED"
+fi
+
+case "$MPF_MODE" in
+    auto) if command -v gmc-run > /dev/null; then MPF_MODE=gmc; else MPF_MODE=both; fi ;;
+    both|game|gmc) ;;
+    *)
+        echo "Unknown MPF_MODE '$MPF_MODE' in /etc/default/pinball-mpf (expected auto, both, game or gmc)"
+        exit "$NOT_CONFIGURED" ;;
+esac
+
+for dev in $WAIT_FOR_DEVICES; do
+    for _ in $(seq 1 "$DEVICE_TIMEOUT"); do
+        [ -e "$dev" ] && break
+        sleep 1
+    done
+    [ -e "$dev" ] || echo "warning: $dev not present after ${DEVICE_TIMEOUT}s; starting anyway"
+done
+
+cd "$MACHINE_DIR"
+echo "Starting MPF ($MPF_MODE) in $MACHINE_DIR"
+# shellcheck disable=SC2086  # MPF_ARGS is deliberately word-split
+case "$MPF_MODE" in
+    gmc)
+        # cage needs a private runtime dir for its Wayland socket; a system
+        # service has no login session to provide /run/user/<uid>.
+        # mpf.service creates /run/mpf (RuntimeDirectory=, mode 0700).
+        export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/mpf}"
+        exec gmc-run "$MACHINE_DIR" $MPF_ARGS ;;
+    both|game)
+        exec /opt/mpf/venv/bin/mpf "$MPF_MODE" $MPF_ARGS ;;
+esac
