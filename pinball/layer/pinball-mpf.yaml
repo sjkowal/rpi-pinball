@@ -4,9 +4,9 @@
 # X-Env-Layer-Desc: Mission Pinball Framework (MPF) core installed into a
 #  dedicated venv at /opt/mpf/venv. Media-controller-agnostic: the media
 #  controller comes from a separate layer chosen by the MPF line's config
-#  (pinball-mpf-mc for 0.57, pinball-gmc for 0.80). No machine folder (game
+#  (pinball-mpf-mc for 0.57, pinball-gmc for 0.80). No MPF project folder (game
 #  code) baked in, and MPF is not started automatically -- ssh in and run
-#  `mpf both <machine_path>` manually once a machine folder is added.
+#  `mpf both <machine_path>` manually once an MPF project folder is added.
 # X-Env-Layer-Version: 2.0.0
 # X-Env-Layer-Requires: device-user-admin
 #
@@ -78,7 +78,7 @@ mmdebstrap:
       chroot $1 env HOME=/root /opt/mpf/venv/bin/mpf --help > /dev/null
     - |-
       # Let the login user manage the venv later (add packages for their
-      # machine folder, etc.) without needing sudo.
+      # MPF project folder, etc.) without needing sudo.
       chroot $1 chown -R "$IGconf_device_user1:$IGconf_device_user1" /opt/mpf
     - |-
       # So `mpf`/`mpf-mc`/`pip` work without the full /opt/mpf/venv/bin/

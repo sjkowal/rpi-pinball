@@ -98,31 +98,31 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner; all four images 
 - SSH enabled; WiFi via NetworkManager (`pinball-networkmanager`); hostname, user, password, WiFi credentials and SSH keys all come from Imager's OS Customisation (`init_format: rpi-preseed`; Imager applies most of it at flash time, anything deferred to boot is consumed by `pinball-readonly-root`'s first-boot script).
 - Working DNS resolution.
 - P-ROC/P3-ROC hardware support: `libpinproc` (built from the `dev` branch) installed system-wide, the `pinproc` Python extension (`pypinproc`) installed into the MPF venv, and udev rules so the boards are accessible without root.
-- **Read-only OS.** `/` and `/boot/firmware` are mounted read-only so a power cut mid-game can't corrupt the OS. A third `DATA` partition (`/data`) holds everything that changes at runtime — `/home` (your machine folder, MPF data and logs) and `/var` (journal, NetworkManager state, apt/dpkg databases) are bind-mounted from it, `/tmp` is a tmpfs. On first boot `pinball-firstboot.service` grows `DATA` to fill your SD card/USB drive in place (no reboot), generates SSH host keys and commits the machine-id; `journalctl -u pinball-firstboot` shows what it did. Layout: `pinball/image/pinball-rpios/`, runtime: `pinball/layer/pinball-readonly-root.yaml`.
-- **MPF at boot** (`mpf.service`, `pinball-mpf-service`): enabled, but it runs nothing until you switch it on for a machine folder. See *Starting MPF at boot* below.
+- **Read-only OS.** `/` and `/boot/firmware` are mounted read-only so a power cut mid-game can't corrupt the OS. A third `DATA` partition (`/data`) holds everything that changes at runtime — `/home` (your MPF project folder, MPF data and logs) and `/var` (journal, NetworkManager state, apt/dpkg databases) are bind-mounted from it, `/tmp` is a tmpfs. On first boot `pinball-firstboot.service` grows `DATA` to fill your SD card/USB drive in place (no reboot), generates SSH host keys and commits the machine-id; `journalctl -u pinball-firstboot` shows what it did. Layout: `pinball/image/pinball-rpios/`, runtime: `pinball/layer/pinball-readonly-root.yaml`.
+- **MPF at boot** (`mpf.service`, `pinball-mpf-service`): enabled, but it runs nothing until you switch it on for an MPF project folder. See *Starting MPF at boot* below.
 - **Fallback IP on `eth0`** (`pinball-net-fallback`): if the cable has a link but DHCP doesn't answer within 20 s, `eth0` also gets `192.168.50.2/24`, so a laptop on a direct cable can reach the Pi. See *Direct-cable access* below.
 - Boot splash (`rpi-splash-screen`, image from `pinball/assets/splash.tga`, currently a placeholder) and quiet boot (`pinball-quiet-boot`).
 - Development conveniences — `git`, `htop`, `vim` (`packages:` in `pinball/pinball.yaml`) — **temporary**.
 
 ## What's *not* on the image (yet)
 
-- No MPF "machine folder" (your actual game config/code) is baked in. Add yours after first boot, e.g.:
+- No MPF project folder (your actual game config/code; MPF's own docs call it the "MPF project folder") is baked in. The image expects it at `~/mpf-project`. Add yours after first boot, e.g.:
   ```bash
   ssh <user>@<device-ip>
-  git clone <your-machine-folder-repo> ~/machine
-  cd ~/machine && mpf both
+  git clone <your-mpf-project-repo> ~/mpf-project
+  cd ~/mpf-project && mpf both
   ```
   `mpf both` runs the core engine and media controller together — that's what you want for a full running machine. `mpf` alone only runs the core (no display), `mpf mc` alone only runs the media controller. `machine_path` is optional if you're already `cd`'d into a folder with a `config/` subfolder in it. (`mpf`/`mpf-mc` are on `$PATH` via `/etc/profile.d/mpf-path.sh`.)
 
   **On an MPF 0.80 image**, use `gmc-run` instead:
   ```bash
-  cd ~/machine && git pull && gmc-run      # or: gmc-run ~/machine
+  cd ~/mpf-project && git pull && gmc-run      # or: gmc-run ~/mpf-project
   ```
   It does two things:
   1. **Imports the Godot project's assets** with `godot --headless --import`. This step is **required**, not an optimisation. Running a project from source, which is what `mpf both` does, never imports assets; only the editor or `--import` does. Without it every image, sound and font fails to load (`No loader found for resource`), and new or changed assets fail again until the next import. When nothing changed, the import takes a few seconds.
   2. **Starts `cage -- mpf both`.** Godot needs a display server, and cage provides a full-screen one. This works from the console and over SSH, because `seatd` gives cage the seat either way. **The mouse pointer is hidden.** cage itself only hides it when no pointing device is connected, so `gmc-run` points cage and Godot at an all-transparent cursor theme. To keep the pointer, run `GMC_SHOW_CURSOR=1 gmc-run`, or set `GMC_SHOW_CURSOR=1` in `/etc/default/pinball-mpf` for MPF at boot.
 
-  `mpf both` starts `godot` against the `project.godot` in your machine folder, or wherever `gmc.cfg`'s `gmc_project_path` points; `gmc-run` imports that same folder. Arguments after the folder go to `mpf both` (`gmc-run ~/machine -X`). `GMC_SKIP_IMPORT=1` skips the import. To do it by hand: `godot --headless --import`, then `cage -- mpf both`.
+  `mpf both` starts `godot` against the `project.godot` in your MPF project folder, or wherever `gmc.cfg`'s `gmc_project_path` points; `gmc-run` imports that same folder. Arguments after the folder go to `mpf both` (`gmc-run ~/mpf-project -X`). `GMC_SKIP_IMPORT=1` skips the import. To do it by hand: `godot --headless --import`, then `cage -- mpf both`.
 
   On a fresh checkout (no `.godot/` folder yet), the first import prints around 17 parse errors from GMC's own editor plugin, which tries to load its icons before they're imported; a second import is clean. `gmc-run` runs the first pass silently for that reason. `godot --import` exits 0 even when assets fail, so read its output rather than trusting the exit status. Don't copy `.godot/` from your desktop; let the Pi build its own.
 
@@ -138,7 +138,7 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner; all four images 
 
 ## Starting MPF at boot
 
-Every image has `mpf.service` enabled, but it only starts MPF once you switch autostart on for the machine folder. A fresh flash, or a Pi you're developing on, is unaffected.
+Every image has `mpf.service` enabled, but it only starts MPF once you switch autostart on for the MPF project folder. A fresh flash, or a Pi you're developing on, is unaffected.
 
 ```bash
 pinball-autostart on       # start MPF at every boot, and start it now
@@ -147,20 +147,21 @@ pinball-autostart status
 journalctl -u mpf -f       # follow MPF's output
 ```
 
-- **The switch is a file:** `~/machine/.autostart`. It's on the writable DATA partition, so neither maintenance mode nor a config edit is needed. `pinball-autostart` also starts or stops the service right away, using `sudo`. Creating or deleting the file by hand works too and takes effect at the next boot. If the machine folder is a git repo, add `.autostart` to its `.gitignore`, unless you *want* every Pi that clones the repo to autostart.
-- **What it runs:** `mpf both` on MPF 0.57 images. On MPF 0.80 images it runs `gmc-run`, which imports the Godot assets and then starts `cage -- mpf both` full screen. It runs from `~/machine`, as the login user (UID 1000, so an Imager-renamed user is fine), with `-t -P -A`:
+- **The switch is a file:** `~/mpf-project/.autostart`. It's on the writable DATA partition, so neither maintenance mode nor a config edit is needed. `pinball-autostart` also starts or stops the service right away, using `sudo`. Creating or deleting the file by hand works too and takes effect at the next boot. If the MPF project folder is a git repo, add `.autostart` to its `.gitignore`, unless you *want* every Pi that clones the repo to autostart.
+- **Coming from v0.5.0?** That release used `~/machine`. Move it with `mv ~/machine ~/mpf-project`, or set `MPF_PROJECT_DIR=/home/<user>/machine` in `/etc/default/pinball-mpf`. The autostart switch moves with the folder.
+- **What it runs:** `mpf both` on MPF 0.57 images. On MPF 0.80 images it runs `gmc-run`, which imports the Godot assets and then starts `cage -- mpf both` full screen. It runs from `~/mpf-project`, as the login user (UID 1000, so an Imager-renamed user is fine), with `-t -P -A`:
   - `-t`: no text UI.
   - `-P`: production mode, which waits for hardware and exits if startup fails.
   - `-A`: no config cache files.
-- **Production mode reads a config bundle, not your YAML.** With `-P`, MPF loads a prebuilt, pickled copy of your config: `mpf_config.bundle` in the machine folder, plus `mpf_mc_config.bundle` for mpf-mc on 0.57. The service builds it with `mpf build production_bundle` (`-b` on 0.80) when it's missing. **It isn't rebuilt when you change your config,** and a stale bundle silently runs the old config. After editing the MPF config, delete the bundles and restart:
+- **Production mode reads a config bundle, not your YAML.** With `-P`, MPF loads a prebuilt, pickled copy of your config: `mpf_config.bundle` in the MPF project folder, plus `mpf_mc_config.bundle` for mpf-mc on 0.57. The service builds it with `mpf build production_bundle` (`-b` on 0.80) when it's missing. **It isn't rebuilt when you change your config,** and a stale bundle silently runs the old config. After editing the MPF config, delete the bundles and restart:
   ```bash
-  rm ~/machine/*.bundle && sudo systemctl restart mpf
+  rm ~/mpf-project/*.bundle && sudo systemctl restart mpf
   ```
-  Add `*.bundle` to the machine folder's `.gitignore`. If the build fails, for example from a config error, the service stops with the error in `journalctl -u mpf`; fix the config and run `pinball-autostart on`. Running MPF by hand without `-P` reads the YAML as usual.
-- **Restarts:** if MPF exits or crashes, systemd restarts it after 5 s. If there's no machine folder or autostart is off, it stops without restarting.
+  Add `*.bundle` to the MPF project folder's `.gitignore`. If the build fails, for example from a config error, the service stops with the error in `journalctl -u mpf`; fix the config and run `pinball-autostart on`. Running MPF by hand without `-P` reads the YAML as usual.
+- **Restarts:** if MPF exits or crashes, systemd restarts it after 5 s. If there's no MPF project folder or autostart is off, it stops without restarting.
 - **Bench work:** `sudo systemctl stop mpf` before running MPF by hand, so two copies don't fight over the serial ports. It starts again at the next boot.
-- **Settings:** `/etc/default/pinball-mpf` holds the machine folder path, the mode (`auto`, `both`, `game` or `gmc`), the MPF flags, devices to wait for, and the audio device for MPF-MC. It's on the read-only root, so edit it with `sudo pinball-rw` and then run `sudo systemctl restart mpf`.
-- **MPF's data persists.** Its `logs/` and `data/` (audits, high scores, saved volume) are written in the machine folder, which is on DATA, so they survive reboots. MPF writes a new log file on every start, so a machine that keeps crashing and restarting will build up logs there.
+- **Settings:** `/etc/default/pinball-mpf` holds the MPF project folder path, the mode (`auto`, `both`, `game` or `gmc`), the MPF flags, devices to wait for, and the audio device for MPF-MC. It's on the read-only root, so edit it with `sudo pinball-rw` and then run `sudo systemctl restart mpf`.
+- **MPF's data persists.** Its `logs/` and `data/` (audits, high scores, saved volume) are written in the MPF project folder, which is on DATA, so they survive reboots. MPF writes a new log file on every start, so a machine that keeps crashing and restarting will build up logs there.
 
 ## Exported GMC builds (optional)
 
@@ -186,7 +187,7 @@ Exporting is worth it for a **finished machine**, once the project has stopped c
 `mpf both` can't launch it, so start the two halves yourself:
 ```bash
 cage -- ~/game/yourgame.arm64      # SSH session 1: the exported GMC app, full screen
-cd ~/machine && mpf                # SSH session 2: MPF core only; it connects to GMC on port 5050
+cd ~/mpf-project && mpf            # SSH session 2: MPF core only; it connects to GMC on port 5050
 ```
 Start order doesn't matter: MPF keeps retrying until GMC is listening. The MSDF font advice above applies to exports too.
 

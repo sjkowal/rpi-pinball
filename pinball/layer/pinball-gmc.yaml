@@ -7,7 +7,7 @@
 #  it needs. Selected by pinball/pinball-mpf80.yaml.
 #
 #  Why this shape: MPF 0.80's `mpf both` (mpf/commands/both.py) spawns
-#  `shutil.which("godot")` against the machine folder's project.godot, so a
+#  `shutil.which("godot")` against the MPF project folder's project.godot, so a
 #  `godot` on $PATH is all MPF needs -- no gmc.cfg edits. GMC itself is a
 #  Godot addon that lives in each game project (addons/mpf-gmc), so it is
 #  not shipped here. Unlike mpf-mc's SDL2, Godot 4 cannot draw straight to

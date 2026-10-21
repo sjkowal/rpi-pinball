@@ -705,6 +705,8 @@ Tested with a stand-in `mpf`:
 - No `-P`: no build.
 - A failed build: exit 75.
 
+
+
 ## Hiding the mouse pointer under cage
 
 Added 2026-10-21. With a pointing device connected, cage showed an arrow in the middle of the GMC display. It's also visible in the earlier garbled-text photo.
@@ -724,3 +726,12 @@ Checked with libXcursor (`XcursorLibraryLoadImage`, the same file format and `XC
 `gmc-run` was tested with stand-ins: the path is set for cage by default, and left unset with `GMC_SHOW_CURSOR=1`, inside an existing Wayland session, and when the theme isn't installed.
 
 **Not verified on hardware:** that the pointer is actually gone on screen, from both the console and the service.
+
+## Default project folder renamed: `~/machine` → `~/mpf-project`
+
+Changed 2026-10-21, at the user's request. The default MPF project folder ("machine folder" in MPF's own docs) is now `~/mpf-project`, and the variable names follow it:
+- `MACHINE_DIR` is now `MPF_PROJECT_DIR`, in `/etc/default/pinball-mpf`, `pinball-mpf-launch` and `pinball-autostart`.
+- `gmc-run`'s internal `MACHINE` is now `MPF_PROJECT`.
+
+Shell variable names can't contain `-`, so `mpf-project` is spelled `MPF_PROJECT`. Script messages and comments say "MPF project folder". The sections above are left as written, with `~/machine` and `MACHINE_DIR`. A Pi that ran v0.5.0 needs `mv ~/machine ~/mpf-project`, or `MPF_PROJECT_DIR` set to the old path. The `.autostart` flag moves with the folder.
+
