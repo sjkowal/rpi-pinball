@@ -1,0 +1,12 @@
+# /etc/default/pinball-network -- settings for pinball-net-fallback.service.
+# Fallback static address for eth0 when DHCP doesn't answer, e.g. a laptop on
+# a direct Ethernet cable with no router. On the laptop, set a manual address
+# of 192.168.50.1 / 255.255.255.0, then `ssh <user>@192.168.50.2`.
+#
+# This file is on the read-only root: edit with `sudo pinball-rw`, then
+# `sudo systemctl restart pinball-net-fallback` and `sudo pinball-ro`.
+IFACE=eth0
+NETWORK_FILE=01-eth0.network      # the .network file that matches IFACE
+FALLBACK_ADDRESS=192.168.50.2/24
+DHCP_TIMEOUT=20                   # seconds of link-without-DHCP before falling back
+POLL_INTERVAL=5

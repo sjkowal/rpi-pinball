@@ -1,0 +1,32 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-mpf-service
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: Start MPF at boot (mpf.service), switched on or off per
+#  machine folder with no maintenance mode: `pinball-autostart on|off|status`
+#  creates or removes <machine folder>/.autostart on the writable DATA
+#  partition. The service is enabled on every image but exits without
+#  restarting (status 75) while there is no machine folder or the switch is
+#  off, so a fresh flash and a developer's bench Pi are unaffected.
+#
+#  Runs as the login user by UID (1000), so it survives Imager renaming that
+#  user, from ~/machine by default. Shared by both MPF lines: on 0.80 images
+#  (where pinball-gmc installs gmc-run) it runs `gmc-run`, i.e. imports the
+#  Godot project's assets and starts `cage -- mpf both`; on 0.57 it runs
+#  `mpf both`. Default flags -t -P -A: no text UI, production mode (waits for
+#  hardware, exits on startup failure -- systemd restarts it), no config
+#  cache. MPF's own logs/ and data/ (audits, high scores, saved volume) land
+#  in the machine folder, which is on DATA, so they persist across reboots.
+#
+#  Settings: /etc/default/pinball-mpf. Scripts and unit:
+#  pinball/assets/{pinball-mpf-launch,pinball-autostart,mpf.service}.
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Requires: pinball-mpf
+# METAEND
+---
+mmdebstrap:
+  customize-hooks:
+    - install -m 755 /home/imagegen/pinball/assets/pinball-mpf-launch $1/usr/local/bin/pinball-mpf-launch
+    - install -m 755 /home/imagegen/pinball/assets/pinball-autostart $1/usr/local/bin/pinball-autostart
+    - install -m 644 /home/imagegen/pinball/assets/pinball-mpf.default $1/etc/default/pinball-mpf
+    - install -m 644 /home/imagegen/pinball/assets/mpf.service $1/etc/systemd/system/mpf.service
+    - $BDEBSTRAP_HOOKS/enable-units "$1" mpf

@@ -99,6 +99,8 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner; all four images 
 - Working DNS resolution.
 - P-ROC/P3-ROC hardware support: `libpinproc` (built from the `dev` branch) installed system-wide, the `pinproc` Python extension (`pypinproc`) installed into the MPF venv, and udev rules so the boards are accessible without root.
 - **Read-only OS.** `/` and `/boot/firmware` are mounted read-only so a power cut mid-game can't corrupt the OS. A third `DATA` partition (`/data`) holds everything that changes at runtime — `/home` (your machine folder, MPF data and logs) and `/var` (journal, NetworkManager state, apt/dpkg databases) are bind-mounted from it, `/tmp` is a tmpfs. On first boot `pinball-firstboot.service` grows `DATA` to fill your SD card/USB drive in place (no reboot), generates SSH host keys and commits the machine-id; `journalctl -u pinball-firstboot` shows what it did. Layout: `pinball/image/pinball-rpios/`, runtime: `pinball/layer/pinball-readonly-root.yaml`.
+- **MPF at boot** (`mpf.service`, `pinball-mpf-service`): enabled, but it runs nothing until you switch it on for a machine folder. See *Starting MPF at boot* below.
+- **Fallback IP on `eth0`** (`pinball-net-fallback`): if the cable has a link but DHCP doesn't answer within 20 s, `eth0` also gets `192.168.50.2/24`, so a laptop on a direct cable can reach the Pi. See *Direct-cable access* below.
 - Boot splash (`rpi-splash-screen`, image from `pinball/assets/splash.tga`, currently a placeholder) and quiet boot (`pinball-quiet-boot`).
 - Development conveniences — `git`, `htop`, `vim` (`packages:` in `pinball/pinball.yaml`) — **temporary**.
 
@@ -124,7 +126,7 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner; all four images 
 
   On a fresh checkout (no `.godot/` folder yet), the first import prints around 17 parse errors from GMC's own editor plugin, which tries to load its icons before they're imported; a second import is clean. `gmc-run` runs the first pass silently for that reason. `godot --import` exits 0 even when assets fail, so read its output rather than trusting the exit status. Don't copy `.godot/` from your desktop; let the Pi build its own.
 
-  **You don't need to export for the Pi while developing.** The image ships the full Godot editor build, which runs the project from source. An export (made with Godot's Linux arm64 export templates) starts faster and has its assets already packed, so it's worth it for a finished machine. An export has no `project.godot`, though, so `mpf both`/`gmc-run` can't launch it: start the exported app under `cage` yourself and run plain `mpf` alongside it.
+  **You don't need to export your GMC project for the Pi.** It runs from source. See *Exported GMC builds (optional)* below for when exporting is worth it.
 
   **Use MSDF fonts.** Under the Vulkan renderer on a Pi 5, text in the default font setup comes out with chunks missing from each letter, even though images and the splash screens are fine and the same project looks right on a desktop. Switching fonts to Multichannel Signed Distance Field fixes it (confirmed on a Pi 5):
   - For Godot's default font: **Project Settings → GUI → Theme → Default Font Multichannel Signed Distance Field** (turn on *Advanced Settings* to see it).
@@ -133,7 +135,67 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner; all four images 
   Then re-import on the Pi (`gmc-run` does it). MSDF text also stays sharp at any size, which suits a full-screen display.
 
   Edit your project with **Godot 4.7.x**, the version on the image. Prefer the *Mobile* or *Compatibility* renderer. Godot plays only OGG Theora video, decoded in software, which the Pi does poorly, so the GMC docs recommend a Pi for DMD-style games.
-- No systemd service — MPF is started manually while developing, not on boot.
+
+## Starting MPF at boot
+
+Every image has `mpf.service` enabled, but it only starts MPF once you switch autostart on for the machine folder. A fresh flash, or a Pi you're developing on, is unaffected.
+
+```bash
+pinball-autostart on       # start MPF at every boot, and start it now
+pinball-autostart off      # stop starting it at boot, and stop it now
+pinball-autostart status
+journalctl -u mpf -f       # follow MPF's output
+```
+
+- **The switch is a file:** `~/machine/.autostart`. It's on the writable DATA partition, so neither maintenance mode nor a config edit is needed. `pinball-autostart` also starts or stops the service right away, using `sudo`. Creating or deleting the file by hand works too and takes effect at the next boot. If the machine folder is a git repo, add `.autostart` to its `.gitignore`, unless you *want* every Pi that clones the repo to autostart.
+- **What it runs:** `mpf both` on MPF 0.57 images. On MPF 0.80 images it runs `gmc-run`, which imports the Godot assets and then starts `cage -- mpf both` full screen. It runs from `~/machine`, as the login user (UID 1000, so an Imager-renamed user is fine), with `-t -P -A`:
+  - `-t`: no text UI.
+  - `-P`: production mode, which waits for hardware and exits if startup fails.
+  - `-A`: no config cache files.
+- **Restarts:** if MPF exits or crashes, systemd restarts it after 5 s. If there's no machine folder or autostart is off, it stops without restarting.
+- **Bench work:** `sudo systemctl stop mpf` before running MPF by hand, so two copies don't fight over the serial ports. It starts again at the next boot.
+- **Settings:** `/etc/default/pinball-mpf` holds the machine folder path, the mode (`auto`, `both`, `game` or `gmc`), the MPF flags, devices to wait for, and the audio device for MPF-MC. It's on the read-only root, so edit it with `sudo pinball-rw` and then run `sudo systemctl restart mpf`.
+- **MPF's data persists.** Its `logs/` and `data/` (audits, high scores, saved volume) are written in the machine folder, which is on DATA, so they survive reboots. MPF writes a new log file on every start, so a machine that keeps crashing and restarting will build up logs there.
+
+## Exported GMC builds (optional)
+
+*MPF 0.80 only.* An **exported build** is your Godot project packaged as a standalone app. In the Godot editor, choose **Project → Export → Linux**, architecture **arm64**. This uses Godot's arm64 export templates, a one-time download that must match the image's Godot version (4.7.2). The result is an executable plus a `.pck` file holding your scenes, scripts and assets, already imported.
+
+### Why the image doesn't use exports
+
+The image runs your project **from source**, and that's all you need:
+- **There's no build step.** Godot runs scripts and scenes straight from the project folder. The only thing it needs first is the asset import, and `gmc-run` and the autostart service both do it on every start.
+- **Updating is just `git pull`** on the Pi. With exports, every change means re-exporting on your desktop and copying the files over.
+- **`mpf both` only launches projects from source.** It checks for a `project.godot` in the project folder, and an export doesn't have one. So `gmc-run`, and MPF at boot (`pinball-autostart`), work only with a project folder. They don't launch exported builds.
+- **The image already ships the full Godot editor build**, which is what runs a project from source.
+
+### Why you might export anyway
+
+Exporting is worth it for a **finished machine**, once the project has stopped changing:
+- **Faster startup.** There's no asset import at launch. The import takes a few seconds when nothing has changed, and longer after a fresh checkout or asset changes.
+- **What you tested is exactly what runs.** The export is one fixed build, with no import step on the Pi that could differ from your desktop.
+- **No project source on the machine.** Only the executable and `.pck` need to be there, so no `.godot/` cache or editor-only files.
+
+### Running an exported build
+
+`mpf both` can't launch it, so start the two halves yourself:
+```bash
+cage -- ~/game/yourgame.arm64      # SSH session 1: the exported GMC app, full screen
+cd ~/machine && mpf                # SSH session 2: MPF core only; it connects to GMC on port 5050
+```
+Start order doesn't matter: MPF keeps retrying until GMC is listening. The MSDF font advice above applies to exports too.
+
+MPF at boot doesn't support exported builds yet. It would need the service to start the exported app plus `mpf game`, in place of `mpf both`. GMC can also start MPF itself (its `spawn_mpf` option), the reverse of `mpf both`.
+
+## Direct-cable access (fallback IP)
+
+`eth0` uses DHCP as normal. If the cable has a link but no DHCP lease arrives within 20 s, `pinball-net-fallback.service` adds `192.168.50.2/24` to `eth0`, and it removes it again as soon as a lease arrives. With no router, for example at a show:
+
+1. Connect the laptop straight to the Pi's Ethernet port.
+2. Give the laptop's Ethernet adapter the manual address `192.168.50.1`, mask `255.255.255.0`. On macOS that's System Settings → Network → (Ethernet adapter) → Details → TCP/IP.
+3. Wait about 20 s after plugging in, then `ssh <user>@192.168.50.2`.
+
+The address is added through a runtime systemd-networkd drop-in under `/run`, so it works on the read-only root and resets at every reboot. `journalctl -u pinball-net-fallback` shows when it switches. The address, interface and timeout are in `/etc/default/pinball-network`; edit with `sudo pinball-rw`, then `sudo systemctl restart pinball-net-fallback`. IPv4 link-local addressing (169.254.x.x) is also on for `eth0`. There's no mDNS/Avahi on the image, so `<hostname>.local` doesn't resolve.
 
 ## Maintenance mode (changing the OS)
 

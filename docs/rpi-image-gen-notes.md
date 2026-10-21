@@ -638,3 +638,49 @@ Builds are checked with `mpf --help` and `godot --headless --version` in the chr
 - Audio comes out.
 - The Pi 4 has enough headroom.
 - In Imager each board lists both lines for a release.
+
+## MPF at boot and a fallback static IP
+
+Added 2026-10-19 from `docs/rpi-pinball-handoff.md`. That handoff was written from a hand-configured Pi without access to this repo, so its assumptions were checked against the image first.
+
+### What the handoff assumed vs. the image
+
+- **Networking: confirmed.** `eth0` is systemd-networkd's, from `01-eth0.network`, which upstream's `layer/rpi/device/family-base.yaml` generates with `netgen` as plain `DHCP=yes`. NetworkManager is scoped to `wlan0` by `pinball-networkmanager`'s `unmanaged-eth0.conf`. Both stay as they are.
+- **Venv:** it's `/opt/mpf/venv`, not `~/mpf-venv`.
+- **User:** `pinball` is only Imager's placeholder and can be renamed, but UID 1000 is stable. So `mpf.service` uses `User=1000`/`Group=1000`. systemd applies that user's own groups through `initgroups`, which already include `dialout`, `audio`, `video`, `render` and `input`, so no `SupplementaryGroups=` is needed.
+- **Read-only root and writable data:** the handoff's open question is already answered by the image's layout. `/home` is bind-mounted from DATA, so the default machine folder `~/machine` and MPF's `logs/` and `data/` there are writable and persistent.
+- **MPF lines:** the handoff covered only 0.57. The service now picks `gmc-run` (0.80) or `mpf both` (0.57) at runtime by whether `gmc-run` is installed. That's a property of the image's actual contents, so no build-time flag is needed.
+- **Avahi:** not on the image, and deliberately not added (user decision). `.local` names don't resolve.
+- **`systemd-udev-settle`:** the handoff ordered after it, but it's deprecated and slows boot, so it was dropped. Hardware readiness is handled by `-P`, the optional `WAIT_FOR_DEVICES`, and restarts.
+
+### Flags
+
+The flags were checked in both `0.57.x` and `0.80.x` `mpf/commands/game.py`, and they're identical. `-t` is `store_false` on `text_ui`, so it *disables* the text UI despite its help text. `-P` is production mode. `-A` is `store_false` on `create_config_cache`.
+
+### Autostart switch
+
+The user chose a flag file on DATA over shipping the service enabled or disabled. `mpf.service` is always enabled. `pinball-mpf-launch` exits with status 75 while there's no machine folder, no `.autostart` in it, or an unknown `MPF_MODE`, and the unit's `RestartPreventExitStatus=75` keeps that from turning into a restart loop. Any other exit is restarted (`Restart=always`, `RestartSec=5`), including `systemctl kill`, which plain `on-failure` would not restart. `pinball-autostart on|off|status` toggles the file and restarts or stops the unit.
+
+For 0.80, `RuntimeDirectory=mpf` (mode 0700) gives cage an `XDG_RUNTIME_DIR`, since a system service has no logind session to provide `/run/user/1000`. `Wants=/After=seatd.service` provides the seat.
+
+### Fallback IP
+
+The design is the handoff's: a watcher writes `/run/systemd/network/01-eth0.network.d/50-pinball-fallback.conf`, then runs `networkctl reload` and `networkctl reconfigure eth0`. It was tested in a privileged bookworm container on a dummy interface, using `valid_lft`-limited ("dynamic") addresses as DHCP leases and a stand-in `networkctl`:
+- No carrier: nothing changes.
+- Carrier, before the timeout: it waits.
+- After the timeout: it adds the drop-in.
+- A lease arrives: it removes the drop-in.
+- With only its own static address on the link: it re-adds the drop-in, because the static address doesn't count as a lease.
+
+`systemd-analyze cat-config systemd/network/01-eth0.network` confirmed that drop-ins from `/run` and from `/etc` (the image's `LinkLocalAddressing=yes`) both merge into the `/etc` file. That's the handoff's test 5, without needing a running networkd.
+
+### Not verified on hardware
+
+Still to run on a Pi, from the handoff's tests:
+- **Fallback IP:** a real LAN, a direct cable, hot-switching between the two, and the read-only root.
+- **MPF at boot:** a cold boot, flippers and sound with no SSH session, `systemctl kill` recovery, booting with a USB cable unplugged, and volume persisting across reboots.
+
+**Verified by the user:** MPF and MPF-MC 0.57 start from a systemd service on a headless machine with no display attached. This was the handoff's open item; it was confirmed on a Pi set up by hand from the handoff's instructions, not on an image built from this repo.
+
+Untested on hardware specifically: cage started from a service, rather than from a login session, on 0.80.
+
