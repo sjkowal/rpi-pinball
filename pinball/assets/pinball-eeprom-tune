@@ -1,0 +1,132 @@
+#!/bin/bash
+# pinball-eeprom-tune -- show, and optionally apply, bootloader (EEPROM)
+# settings that shorten boot on this board.
+#
+#   pinball-eeprom-tune            # show current vs recommended; changes nothing
+#   pinball-eeprom-tune --apply    # back up, confirm, apply; reboot to take effect
+#
+# These settings live in the board's bootloader EEPROM, not in the image, so
+# they are per board and never changed automatically: BOOT_ORDER depends on
+# what this board boots from. Recommended:
+#   BOOT_ORDER           only the device this board booted from, then retry
+#                        (0xf1 SD/eMMC, 0xf6 NVMe, 0xf4 USB). Each failed probe
+#                        of an absent device costs time -- but it also removes
+#                        the fallback to other boot devices.
+#   NET_INSTALL_ENABLED=0  skip the network-install keyboard check
+#   DISABLE_HDMI=1       skip the bootloader's HDMI diagnostic screen
+#   BOOT_UART=0          no bootloader UART logging
+#   WAIT_FOR_POWER_BUTTON=0  (Pi 5 / CM5) start on power-up
+# Not changed: PSU_MAX_CURRENT. Setting it to 5000 skips the Pi 5's
+# low-power warning, but only do it by hand, and only with a supply that
+# really delivers 5 A -- otherwise USB devices can brown out.
+#
+# Recovery: --apply saves the previous settings to ~/eeprom-config.backup-*;
+# restore with `sudo pinball-rw && sudo rpi-eeprom-config --apply <file>`,
+# or reflash the bootloader with Raspberry Pi Imager / rpiboot.
+#
+# Installed by the pinball-boot-time layer.
+set -eu
+
+die() { echo "pinball-eeprom-tune: $*" >&2; exit 1; }
+as_root() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
+
+APPLY=0
+case "${1:-}" in
+    "") ;;
+    --apply) APPLY=1 ;;
+    -h|--help) sed -n '2,/^set -eu/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
+    *) die "usage: pinball-eeprom-tune [--apply]" ;;
+esac
+
+command -v rpi-eeprom-config > /dev/null || die "rpi-eeprom-config not found (package rpi-eeprom)"
+
+# PINBALL_DT_DIR: only for testing with a fake device tree.
+DT="${PINBALL_DT_DIR:-/proc/device-tree}"
+COMPAT="$(tr '\0' ' ' < "$DT/compatible" 2>/dev/null || true)"
+MODEL="$(tr -d '\0' < "$DT/model" 2>/dev/null || echo unknown)"
+case "$COMPAT" in
+    *bcm2712*) FAMILY=2712 ;;      # Pi 5, CM5
+    *bcm2711*) FAMILY=2711 ;;      # Pi 4, CM4, Pi 400
+    *) die "unsupported board: $MODEL (expected a Pi 4/CM4 or Pi 5/CM5)" ;;
+esac
+
+# The device this board booted from: the disk holding the root partition.
+ROOTDEV="$(findmnt -no SOURCE / || true)"
+case "$ROOTDEV" in
+    /dev/mmcblk*) BOOT_ORDER=0xf1; MEDIA="SD card / eMMC" ;;
+    /dev/nvme*)
+        [ "$FAMILY" = 2712 ] || die "NVMe root on a non-Pi 5 board; set BOOT_ORDER by hand"
+        BOOT_ORDER=0xf6; MEDIA="NVMe" ;;
+    /dev/sd*) BOOT_ORDER=0xf4; MEDIA="USB storage" ;;
+    *) die "can't tell the boot device from root on '$ROOTDEV'; set BOOT_ORDER by hand" ;;
+esac
+
+WANT="BOOT_ORDER=$BOOT_ORDER NET_INSTALL_ENABLED=0 DISABLE_HDMI=1 BOOT_UART=0"
+[ "$FAMILY" = 2712 ] && WANT="$WANT WAIT_FOR_POWER_BUTTON=0"
+
+CURRENT="$(mktemp)"; NEW="$(mktemp)"
+trap 'rm -f "$CURRENT" "$NEW"' EXIT
+as_root rpi-eeprom-config > "$CURRENT" || die "could not read the bootloader config"
+
+# Set each key in the [all] section (adding the section if there is none),
+# leaving every other line and section as it was.
+python3 - "$CURRENT" "$NEW" $WANT <<'EOF'
+import sys
+src, dst, pairs = sys.argv[1], sys.argv[2], sys.argv[3:]
+want = dict(p.split("=", 1) for p in pairs)
+lines = open(src).read().splitlines()
+# Lines before any [section] header, and lines under [all], apply to every
+# board: that's where the keys go.
+scope, seen, all_header = "all", set(), None
+for i, line in enumerate(lines):
+    s = line.strip()
+    if s.startswith("[") and s.endswith("]"):
+        scope = s[1:-1].strip().lower()
+        if scope == "all" and all_header is None:
+            all_header = i
+    elif scope == "all" and "=" in s and not s.startswith("#"):
+        key = s.split("=", 1)[0].strip()
+        if key in want:
+            lines[i] = f"{key}={want[key]}"
+            seen.add(key)
+missing = [f"{k}={v}" for k, v in want.items() if k not in seen]
+at = all_header + 1 if all_header is not None else 0
+lines[at:at] = missing
+open(dst, "w").write("\n".join(lines) + "\n")
+EOF
+
+echo "Board: $MODEL"
+echo "Boots from: $MEDIA ($ROOTDEV)"
+echo
+if diff -q "$CURRENT" "$NEW" > /dev/null; then
+    echo "Bootloader settings already match the recommendations. Nothing to do."
+    exit 0
+fi
+echo "Recommended changes (- current, + recommended):"
+diff -u --label current --label recommended "$CURRENT" "$NEW" | tail -n +3 || true
+echo
+echo "BOOT_ORDER=$BOOT_ORDER boots only from $MEDIA: other boot devices will no longer be tried."
+
+if [ "$APPLY" -eq 0 ]; then
+    echo
+    echo "Nothing changed. To apply: pinball-eeprom-tune --apply"
+    exit 0
+fi
+
+echo
+read -r -p "Apply these bootloader settings? [y/N] " answer
+case "$answer" in y|Y|yes|YES) ;; *) echo "Not applied."; exit 0 ;; esac
+
+BACKUP="$HOME/eeprom-config.backup-$(date +%Y%m%d-%H%M%S)"
+cp "$CURRENT" "$BACKUP"
+echo "Saved the current settings to $BACKUP"
+
+# rpi-eeprom-config stages the update on the boot partition, which is
+# read-only on this image.
+as_root pinball-rw
+status=0
+as_root rpi-eeprom-config --apply "$NEW" || status=$?
+as_root pinball-ro || true
+[ "$status" -eq 0 ] || die "rpi-eeprom-config --apply failed (status $status); nothing else was changed"
+echo
+echo "Applied. Reboot to use the new settings: sudo reboot"

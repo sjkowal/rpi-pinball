@@ -100,6 +100,7 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner; all four images 
 - P-ROC/P3-ROC hardware support: `libpinproc` (built from the `dev` branch) installed system-wide, the `pinproc` Python extension (`pypinproc`) installed into the MPF venv, and udev rules so the boards are accessible without root.
 - **Read-only OS.** `/` and `/boot/firmware` are mounted read-only so a power cut mid-game can't corrupt the OS. A third `DATA` partition (`/data`) holds everything that changes at runtime — `/home` (your MPF project folder, MPF data and logs) and `/var` (journal, NetworkManager state, apt/dpkg databases) are bind-mounted from it, `/tmp` is a tmpfs. On first boot `pinball-firstboot.service` grows `DATA` to fill your SD card/USB drive in place (no reboot), generates SSH host keys and commits the machine-id; `journalctl -u pinball-firstboot` shows what it did. Layout: `pinball/image/pinball-rpios/`, runtime: `pinball/layer/pinball-readonly-root.yaml`.
 - **MPF at boot** (`mpf.service`, `pinball-mpf-service`): enabled, but it runs nothing until you switch it on for an MPF project folder. See *Starting MPF at boot* below.
+- **Faster boot** (`pinball-boot-time`): no initramfs, no serial console, a quiet kernel, camera auto-detect off, and no apt timers. Plus `pinball-eeprom-tune` for this board's bootloader settings. See *Boot time* below.
 - **Fallback IP on `eth0`** (`pinball-net-fallback`): if the cable has a link but DHCP doesn't answer within 20 s, `eth0` also gets `192.168.50.2/24`, so a laptop on a direct cable can reach the Pi. See *Direct-cable access* below.
 - Boot splash (`rpi-splash-screen`, image from `pinball/assets/splash.tga`, currently a placeholder) and quiet boot (`pinball-quiet-boot`).
 - Development conveniences — `git`, `htop`, `vim` (`packages:` in `pinball/pinball.yaml`) — **temporary**.
@@ -119,10 +120,10 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner; all four images 
   cd ~/mpf-project && git pull && gmc-run      # or: gmc-run ~/mpf-project
   ```
   It does two things:
-  1. **Imports the Godot project's assets** with `godot --headless --import`. This step is **required**, not an optimisation. Running a project from source, which is what `mpf both` does, never imports assets; only the editor or `--import` does. Without it every image, sound and font fails to load (`No loader found for resource`), and new or changed assets fail again until the next import. When nothing changed, the import takes a few seconds.
+  1. **Imports the Godot project's assets** with `godot --headless --import`. This step is **required**, not an optimisation. Running a project from source, which is what `mpf both` does, never imports assets; only the editor or `--import` does. Without it every image, sound and font fails to load (`No loader found for resource`), and new or changed assets fail again until the next import. It's skipped when nothing in the project changed since the last import, since it costs seconds at every boot. A timestamp file in `.godot/` tracks this, and MPF's own runtime files (`logs/`, `data/`, `*.bundle`, `.autostart`) don't count as changes. Files copied in with their old timestamps kept (`cp -p`, `rsync -t`) aren't noticed; run `GMC_FORCE_IMPORT=1 gmc-run` after those.
   2. **Starts `cage -- mpf both`.** Godot needs a display server, and cage provides a full-screen one. This works from the console and over SSH, because `seatd` gives cage the seat either way. **The mouse pointer is hidden.** cage itself only hides it when no pointing device is connected, so `gmc-run` points cage and Godot at an all-transparent cursor theme. To keep the pointer, run `GMC_SHOW_CURSOR=1 gmc-run`, or set `GMC_SHOW_CURSOR=1` in `/etc/default/pinball-mpf` for MPF at boot.
 
-  `mpf both` starts `godot` against the `project.godot` in your MPF project folder, or wherever `gmc.cfg`'s `gmc_project_path` points; `gmc-run` imports that same folder. Arguments after the folder go to `mpf both` (`gmc-run ~/mpf-project -X`). `GMC_SKIP_IMPORT=1` skips the import. To do it by hand: `godot --headless --import`, then `cage -- mpf both`.
+  `mpf both` starts `godot` against the `project.godot` in your MPF project folder, or wherever `gmc.cfg`'s `gmc_project_path` points; `gmc-run` imports that same folder. Arguments after the folder go to `mpf both` (`gmc-run ~/mpf-project -X`). `GMC_SKIP_IMPORT=1` skips the import, and `GMC_FORCE_IMPORT=1` forces it. To do it by hand: `godot --headless --import`, then `cage -- mpf both`.
 
   On a fresh checkout (no `.godot/` folder yet), the first import prints around 17 parse errors from GMC's own editor plugin, which tries to load its icons before they're imported; a second import is clean. `gmc-run` runs the first pass silently for that reason. `godot --import` exits 0 even when assets fail, so read its output rather than trusting the exit status. Don't copy `.godot/` from your desktop; let the Pi build its own.
 
@@ -202,6 +203,46 @@ MPF at boot doesn't support exported builds yet. It would need the service to st
 3. Wait about 20 s after plugging in, then `ssh <user>@192.168.50.2`.
 
 The address is added through a runtime systemd-networkd drop-in under `/run`, so it works on the read-only root and resets at every reboot. `journalctl -u pinball-net-fallback` shows when it switches. The address, interface and timeout are in `/etc/default/pinball-network`; edit with `sudo pinball-rw`, then `sudo systemctl restart pinball-net-fallback`. IPv4 link-local addressing (169.254.x.x) is also on for `eth0`. There's no mDNS/Avahi on the image, so `<hostname>.local` doesn't resolve.
+
+## Boot time
+
+The image is set up for a short power-on-to-game time. Most of this is in `pinball/layer/pinball-boot-time.yaml`:
+- **No initramfs.** The kernel finds the root partition by PARTUUID itself, and has SD/eMMC, NVMe, USB storage and ext4 built in. `ro` on the kernel command line keeps the root read-only from the start. The exception is the boot splash: the `rpi-splash-screen` layer displays its image from the initramfs, so enabling it keeps the initramfs, automatically.
+- **No serial console** (see below), and `quiet loglevel=3` on the kernel command line.
+- **Smaller trims:** camera auto-detect is off, the firmware's rainbow splash is off, `multi-user.target` is the default, and the apt-daily timers are off (they can't work on the read-only root).
+- **On MPF 0.80,** `gmc-run` skips the Godot asset import when nothing in the project changed.
+- **Already minimal:** no swap, no Bluetooth, ModemManager, Avahi or cloud-init, and nothing at boot waits for the network.
+
+Deliberately **not** done:
+- **`fastboot`.** It skips the filesystem check on every partition, including DATA, which is what repairs DATA after a power cut.
+- **`dtparam=audio=off` and `display_auto_detect=0`.** They would break the Pi 4's 3.5 mm audio and DSI screens. Set them in `/boot/firmware/config.txt` per machine if you don't need those. That file is on the read-only boot partition, so edit it with `sudo pinball-rw`.
+
+**To measure boot time:**
+```bash
+systemd-analyze                                         # kernel + userspace (not the bootloader stage)
+systemd-analyze blame | head -20
+journalctl -b -u mpf -o short-monotonic | head -5       # when MPF started, in seconds since kernel start
+```
+
+### Bootloader (EEPROM) settings
+
+These are stored on each board, not in the image, so they're never changed automatically. `pinball-eeprom-tune` shows this board's settings next to the recommended ones, and changes nothing. `pinball-eeprom-tune --apply` saves a backup to `~/eeprom-config.backup-*`, asks for confirmation, applies, and you then reboot. The recommendations:
+- **`BOOT_ORDER`:** only the device this board booted from, then retry. That's `0xf1` for SD/eMMC, `0xf6` for NVMe, `0xf4` for USB. Each probe of an absent device costs time, but other boot devices are then no longer tried.
+- **`NET_INSTALL_ENABLED=0`, `DISABLE_HDMI=1`, `BOOT_UART=0`,** and on Pi 5/CM5 **`WAIT_FOR_POWER_BUTTON=0`.**
+
+`PSU_MAX_CURRENT=5000` is left alone. It skips the Pi 5's low-power warning, but only set it by hand, and only with a supply that really delivers 5 A, or USB devices can brown out. To undo: `sudo pinball-rw && sudo rpi-eeprom-config --apply ~/eeprom-config.backup-<date>`, then `sudo pinball-ro` and reboot.
+
+### Serial console (removed)
+
+The kernel no longer logs to the serial port, and the bootloader's second stage no longer logs over UART. To get them back for debugging:
+```bash
+sudo pinball-rw
+sudo sed -i 's/console=tty1/console=serial0,115200 console=tty1/' /boot/firmware/cmdline.txt   # kernel console
+sudo sed -i 's/^uart_2ndstage=0$/uart_2ndstage=1/' /boot/firmware/config.txt                     # bootloader logs (optional)
+sudo pinball-ro
+sudo reboot
+```
+`cmdline.txt` must stay a single line. On a Pi 4, `serial0` is the UART on GPIO 14/15, which the image already enables (`enable_uart=1`). On a Pi 5/CM5, `serial0` is the 3-pin debug UART connector; for GPIO 14/15, also add `enable_uart=1` to `config.txt`. Check Raspberry Pi's UART documentation for your board. A login prompt on the serial port needs `sudo systemctl enable serial-getty@serial0.service` as well. The bootloader's own UART logging is `BOOT_UART=1` in the EEPROM settings above.
 
 ## Maintenance mode (changing the OS)
 

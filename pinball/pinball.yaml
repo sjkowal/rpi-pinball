@@ -164,6 +164,11 @@ layer:
   # Fallback static IP on eth0 (192.168.50.2/24) when DHCP doesn't answer,
   # for a laptop on a direct cable.
   net_fallback: pinball-net-fallback
+  # Faster boot: no initramfs, no serial console, quiet kernel, camera
+  # auto-detect off, multi-user.target default, apt timers off; installs
+  # pinball-eeprom-tune. See that layer's header for what's deliberately
+  # left alone (fastboot, audio, display auto-detect).
+  boot_time: pinball-boot-time
   bootdev_fix: pinball-bootdev-fix
   # DISABLED AGAIN (2026-09-09): re-enabled on 2026-09-08 after the
   # boot-crash/Imager-customisation saga (docs/rpi-image-gen-notes.md) was
@@ -171,7 +176,9 @@ layer:
   # v0.0.1-rc1 CI build) misbehaves and has not been diagnosed. Keep both
   # off so kernel/systemd text and the tty1 login stay visible until the
   # image is verified on hardware again; re-enable together with the
-  # `splash:` block below.
+  # `splash:` block below. NOTE: the splash is displayed from the
+  # initramfs, so re-enabling it brings the initramfs back --
+  # pinball-boot-time detects this layer and leaves auto_initramfs=1.
   # splash_screen: rpi-splash-screen
   # quiet_boot: pinball-quiet-boot
 

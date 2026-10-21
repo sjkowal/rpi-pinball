@@ -6,6 +6,7 @@
 #   gmc-run ~/mpf-project         # explicit MPF project folder
 #   gmc-run ~/mpf-project -X -v   # anything after the folder goes to `mpf both`
 #   GMC_SKIP_IMPORT=1 gmc-run     # skip the import step
+#   GMC_FORCE_IMPORT=1 gmc-run    # import even if nothing seems to have changed
 #   GMC_SHOW_CURSOR=1 gmc-run     # keep the mouse pointer visible
 #
 # Why the import step is not optional: running a Godot project (which is
@@ -45,7 +46,38 @@ fi
 MPF="$(command -v mpf || echo /opt/mpf/venv/bin/mpf)"
 [ -x "$MPF" ] || die "cannot find mpf (expected /opt/mpf/venv/bin/mpf)"
 
-if [ -z "${GMC_SKIP_IMPORT:-}" ]; then
+# Skip the import when nothing in the project changed since the last one:
+# it starts headless Godot, which costs seconds at every boot. The stamp is
+# written after a successful import -- Godot writes *.import files next to
+# the assets while importing, and those must not count as changes. MPF's
+# own runtime output in the project folder (logs/, data/, the production
+# *.bundle files, the .autostart switch) is ignored too, or every run would
+# trigger a re-import. Files copied in with their old timestamps kept (cp -p,
+# rsync -t) aren't noticed: use GMC_FORCE_IMPORT=1 for those.
+#
+# A deletion only shows as a newer directory timestamp, and the project
+# folder's own timestamp also changes whenever MPF creates logs/ or a
+# bundle. So the stamp also records the top-level names (minus MPF's), and
+# a different list counts as a change; deeper deletions are caught by their
+# folder's timestamp.
+STAMP="$PROJECT/.godot/pinball-import.stamp"
+top_level() {
+  (cd "$PROJECT" && ls -A1 | grep -v -x -E '\.godot|logs|data|\.git|\.autostart|.*\.bundle' || true)
+}
+project_changed() {
+  [ -f "$STAMP" ] || return 0
+  [ "$(top_level)" = "$(cat "$STAMP")" ] || return 0
+  [ -n "$(find "$PROJECT" -mindepth 1 \
+      \( -path "$PROJECT/.godot" -o -path "$PROJECT/logs" -o -path "$PROJECT/data" \
+         -o -name .git -o -name .autostart -o -name '*.bundle' \) -prune \
+      -o -newer "$STAMP" -print -quit)" ]
+}
+
+if [ -n "${GMC_SKIP_IMPORT:-}" ]; then
+  :
+elif [ -z "${GMC_FORCE_IMPORT:-}" ] && ! project_changed; then
+  echo "gmc-run: no project changes since the last import; skipping it (GMC_FORCE_IMPORT=1 to force)"
+else
   # On a fresh checkout (no .godot/ yet) the first import reports ~17
   # parse errors from GMC's editor plugin, which preloads its own icons
   # before they have been imported; a second pass is clean. So a fresh
@@ -58,6 +90,7 @@ if [ -z "${GMC_SKIP_IMPORT:-}" ]; then
   fi
   echo "gmc-run: importing Godot assets..."
   godot --headless --import --path "$PROJECT" || die "godot --import failed"
+  top_level > "$STAMP"
 fi
 
 # Already inside a graphical session (a desktop, or a cage started some
