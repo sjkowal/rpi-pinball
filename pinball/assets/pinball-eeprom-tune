@@ -70,9 +70,9 @@ as_root rpi-eeprom-config > "$CURRENT" || die "could not read the bootloader con
 
 # Set each key in the [all] section (adding the section if there is none),
 # leaving every other line and section as it was.
-python3 - "$CURRENT" "$NEW" $WANT <<'EOF'
+python3 - "$CURRENT" "$NEW" "$MEDIA" $WANT <<'EOF'
 import sys
-src, dst, pairs = sys.argv[1], sys.argv[2], sys.argv[3:]
+src, dst, media, pairs = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
 want = dict(p.split("=", 1) for p in pairs)
 lines = open(src).read().splitlines()
 # Lines before any [section] header, and lines under [all], apply to every
@@ -92,6 +92,20 @@ for i, line in enumerate(lines):
 missing = [f"{k}={v}" for k, v in want.items() if k not in seen]
 at = all_header + 1 if all_header is not None else 0
 lines[at:at] = missing
+
+# A comment block right above BOOT_ORDER describes the old value (stock
+# configs say "SD -> NVMe -> USB -> Network"); replace it with one that
+# matches the new value. Only blocks that mention BOOT_ORDER are touched.
+note = f"# BOOT_ORDER (pinball-eeprom-tune): boot only from {media}, then retry"
+for i, line in enumerate(lines):
+    if line.strip().startswith("BOOT_ORDER="):
+        j = i
+        while j > 0 and lines[j - 1].strip().startswith("#"):
+            j -= 1
+        block = lines[j:i]
+        if not block or any("BOOT_ORDER" in c for c in block):
+            lines[j:i] = [note]
+        break
 open(dst, "w").write("\n".join(lines) + "\n")
 EOF
 
@@ -111,6 +125,21 @@ if [ "$APPLY" -eq 0 ]; then
     echo
     echo "Nothing changed. To apply: pinball-eeprom-tune --apply"
     exit 0
+fi
+
+# The update (~2 MB) is staged on the boot partition, which is small (45 MB
+# on current images, ~11 MB free; full on images before v0.7.0). Check
+# before changing anything, instead of failing halfway through the copy.
+NEED_KB=4096
+FREE_KB="$(df -Pk /boot/firmware | awk 'NR==2 {print $4}')"
+if [ "${FREE_KB:-0}" -lt "$NEED_KB" ]; then
+    echo "pinball-eeprom-tune: /boot/firmware has ${FREE_KB:-0} KB free; the update needs about $NEED_KB KB." >&2
+    if grep -qx 'auto_initramfs=0' /boot/firmware/config.txt 2>/dev/null && ls /boot/firmware/initramfs* > /dev/null 2>&1; then
+        echo "This board doesn't load its initramfs (auto_initramfs=0), so its leftover copies can go:" >&2
+        echo "  sudo pinball-rw && sudo rm -f /boot/firmware/initramfs* && sudo pinball-ro" >&2
+    fi
+    echo "Nothing was changed." >&2
+    exit 1
 fi
 
 echo

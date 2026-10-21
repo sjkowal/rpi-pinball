@@ -46,7 +46,13 @@ image:
   # Use `sudo pinball-rw` / `sudo pinball-ro` for OS maintenance. See
   # docs/rpi-image-gen-notes.md.
   layer: pinball-image-rpios
-  boot_part_size: 100%
+  # Fixed 45M, the size the old "100%" (exact fit) produced while the 11 MB
+  # initramfs was on it. With exact fit, removing the initramfs only shrank
+  # the partition (to 35 MB, still ~0.5 MB free); fixed, the same 45 MB
+  # leaves ~11 MB free -- room for a bootloader (EEPROM) update (~2 MB) and
+  # replacing the kernel. Kept small for now; see README "Boot partition
+  # size". genimage fails the build if the contents ever outgrow it.
+  boot_part_size: 45M
   # Fixed, not 100% (exact fit): the root filesystem no longer auto-expands
   # (DATA takes the rest of the disk), and maintenance-mode apt/pip updates
   # need headroom. Built rootfs is ~1.9G.

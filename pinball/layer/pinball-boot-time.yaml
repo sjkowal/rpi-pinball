@@ -12,6 +12,15 @@
 #    carried a udev rule the real root runs again anyway. `ro` is added to
 #    the kernel command line, since without an initramfs the kernel would
 #    otherwise mount root read-write (and fsck can't check a rw root).
+#    The initramfs is also no longer *made* or copied: the kernel package
+#    hard-depends on initramfs-tools, which builds /boot/initrd.img-* on
+#    every kernel install, and raspi-firmware's hook copies it to the small
+#    boot partition (11 MB of its ~45 MB) unless /etc/default/raspi-firmware
+#    says INITRAMFS=no. That setting is written here, so kernel upgrades
+#    don't copy it back, and the build-time copy on the boot partition is
+#    removed. /boot/initrd.img-* on the root partition stays: rpi-image-gen's
+#    own final customize60-initramfs-tools step regenerates it after every
+#    layer's hooks. It's unused and costs 11 MB of the 4 GB root.
 #  - No serial console: console=serial0,115200 removed (the kernel writes
 #    its log to the UART at 115200 baud, which slows boot), bootloader
 #    second-stage UART logging off (uart_2ndstage=0). See the README for
@@ -27,7 +36,7 @@
 #  dtparam=audio=off and display_auto_detect=0 (would break the Pi 4's
 #  3.5 mm audio and DSI screens); EEPROM settings (per board -- see
 #  pinball-eeprom-tune, installed here).
-# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Version: 1.1.0
 # X-Env-Layer-Requires: rpi-boot-firmware
 # METAEND
 ---
@@ -47,6 +56,12 @@ mmdebstrap:
       else
         sed -i 's/^auto_initramfs=1$/auto_initramfs=0/' "$CFG"
         grep -qx 'auto_initramfs=0' "$CFG"
+        # Stop raspi-firmware copying it to the boot partition, now and on
+        # future kernel upgrades (its post-update hook only copies when
+        # INITRAMFS=auto, the default), and remove the build-time copy.
+        mkdir -p "$1/etc/default"
+        printf '# pinball-boot-time: the image boots without an initramfs\nINITRAMFS=no\n' > "$1/etc/default/raspi-firmware"
+        rm -fv "$1"/boot/firmware/initramfs*
       fi
       printf '\n[all]\n# pinball-boot-time: no rainbow splash from the firmware\ndisable_splash=1\n' >> "$CFG"
     - |-

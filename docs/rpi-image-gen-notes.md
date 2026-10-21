@@ -798,3 +798,22 @@ A negated test in the hook (`! grep …`) was replaced with an explicit `if`, be
 - **`systemd-fsck-root` and the read-only root** with `ro` from the kernel.
 - **Before/after timings:** `systemd-analyze`, and time-to-MPF from `journalctl -u mpf -o short-monotonic`.
 - **`pinball-eeprom-tune --apply`** on a real bootloader.
+
+### Follow-up: the initramfs was still built, copied, and filled the boot partition
+
+Found on hardware on 2026-10-21. `pinball-eeprom-tune --apply` on a CM5 Lite (NVMe, v0.7.0-rc1) failed with `cp: error writing '/boot/firmware/pieeprom.upd': No space left on device`. The cause:
+- **`boot_part_size: 100%` sizes BOOT to fit its contents.** Both the Pi 5 and Pi 4 images had a 45 MB boot partition with ~450 KB free.
+- **11 MB of that was the initramfs, which `auto_initramfs=0` had already made unused.** `linux-image-*` hard-depends on `initramfs-tools`, whose `/etc/kernel/postinst.d/initramfs-tools` builds `/boot/initrd.img-*`. Then `raspi-firmware`'s `/etc/initramfs/post-update.d/z50-raspi-firmware` copies it to `/boot/firmware/initramfs{8,_2712}`, but only while `INITRAMFS` (from `/etc/default/raspi-firmware`) is `auto`, its default.
+- **Nothing later in the pipeline regenerates it.** No layer in this repo or upstream calls `update-initramfs`.
+
+The fix, in `pinball-boot-time` 1.1.0, again skipped when the splash layer is configured: it writes `INITRAMFS=no` to `/etc/default/raspi-firmware`, so kernel upgrades don't copy it back, and deletes `/boot/firmware/initramfs*`.
+
+Two things showed up in the build that tested it:
+- **Removing the file freed nothing at first.** With `100%`, the partition shrank to fit its new contents, 35 MB with ~470 KB still free. So `boot_part_size` is now a fixed `45M`: the size it already was in practice, kept as the user asked, but now with ~11 MB actually free. The README explains the limits.
+- **Deleting `/boot/initrd.img-*` on the root partition is pointless.** rpi-image-gen's own `scripts/bdebstrap/customize60-initramfs-tools`, which runs after every layer's hooks, regenerates it (`update-initramfs: Generating /boot/initrd.img-…`). With `INITRAMFS=no` it no longer reaches the boot partition, so the root copy is left alone: unused, and 11 MB of the 4 GB root.
+
+`pinball-eeprom-tune` now also:
+- **Checks for room first:** at least 4096 KB free on `/boot/firmware`, checked before the confirmation prompt. If there's too little, it says so, with the `rm` fix when `auto_initramfs=0`, and changes nothing.
+- **Replaces a stale comment block** directly above `BOOT_ORDER`, but only one that mentions `BOOT_ORDER`, such as the stock "SD -> NVMe -> USB -> Network", with one describing the new value.
+- **Tests,** using the CM5's real config: the stale comment is replaced; an unrelated comment is kept; a full 1 MB boot partition is refused with no backup made; a roomy 16 MB one applies.
+

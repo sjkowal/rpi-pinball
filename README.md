@@ -207,7 +207,7 @@ The address is added through a runtime systemd-networkd drop-in under `/run`, so
 ## Boot time
 
 The image is set up for a short power-on-to-game time. Most of this is in `pinball/layer/pinball-boot-time.yaml`:
-- **No initramfs.** The kernel finds the root partition by PARTUUID itself, and has SD/eMMC, NVMe, USB storage and ext4 built in. `ro` on the kernel command line keeps the root read-only from the start. The exception is the boot splash: the `rpi-splash-screen` layer displays its image from the initramfs, so enabling it keeps the initramfs, automatically.
+- **No initramfs.** It's neither loaded nor kept on the boot partition: the build removes it there and sets `INITRAMFS=no` in `/etc/default/raspi-firmware`, so kernel upgrades don't copy it back. An unused copy stays at `/boot/initrd.img-*` on the root partition, where it's harmless: the build regenerates it in its last step. The kernel finds the root partition by PARTUUID itself, and has SD/eMMC, NVMe, USB storage and ext4 built in. `ro` on the kernel command line keeps the root read-only from the start. The exception is the boot splash: the `rpi-splash-screen` layer displays its image from the initramfs, so enabling it keeps the initramfs, automatically.
 - **No serial console** (see below), and `quiet loglevel=3` on the kernel command line.
 - **Smaller trims:** camera auto-detect is off, the firmware's rainbow splash is off, `multi-user.target` is the default, and the apt-daily timers are off (they can't work on the read-only root).
 - **On MPF 0.80,** `gmc-run` skips the Godot asset import when nothing in the project changed.
@@ -230,7 +230,19 @@ These are stored on each board, not in the image, so they're never changed autom
 - **`BOOT_ORDER`:** only the device this board booted from, then retry. That's `0xf1` for SD/eMMC, `0xf6` for NVMe, `0xf4` for USB. Each probe of an absent device costs time, but other boot devices are then no longer tried.
 - **`NET_INSTALL_ENABLED=0`, `DISABLE_HDMI=1`, `BOOT_UART=0`,** and on Pi 5/CM5 **`WAIT_FOR_POWER_BUTTON=0`.**
 
+`--apply` first checks that the boot partition has room for the update (about 2 MB staged there; it asks for 4 MB) and stops before changing anything if not. See *Boot partition size* below.
+
 `PSU_MAX_CURRENT=5000` is left alone. It skips the Pi 5's low-power warning, but only set it by hand, and only with a supply that really delivers 5 A, or USB devices can brown out. To undo: `sudo pinball-rw && sudo rpi-eeprom-config --apply ~/eeprom-config.backup-<date>`, then `sudo pinball-ro` and reboot.
+
+### Boot partition size
+
+The boot partition (`/boot/firmware`) is a fixed **45 MB** (`boot_part_size: 45M` in `pinball/pinball.yaml`), and with the initramfs removed it has **about 11 MB free**. That's enough for a bootloader (EEPROM) update, which stages ~2 MB there, and for replacing the kernel in place. But it's not a lot:
+- **It used to be `100%`, meaning exactly the size of its contents.** That's why it was full. Removing files from an exact-fit partition only shrinks it, so a fixed size is what leaves room.
+- **The boot splash brings the initramfs back.** Re-enabling `rpi-splash-screen` puts the 11 MB file back, leaving almost no free space. That's too little for an EEPROM update: `pinball-eeprom-tune --apply` would refuse.
+- **Kernel or firmware upgrades with `apt`** in maintenance mode write to this partition. Check `df -h /boot/firmware` first if space looks tight.
+- **The cure is a bigger partition,** for example `boot_part_size: 512M` as Raspberry Pi OS uses. The empty space costs almost nothing in the compressed download. It hasn't been made the default yet. If the contents ever outgrow 45 MB, the build fails rather than producing a broken image.
+
+Images before v0.7.0 had the initramfs on the boot partition and only ~0.5 MB free. On those, an EEPROM update fails with `No space left on device`. Only delete `/boot/firmware/initramfs*` on a board whose `config.txt` has `auto_initramfs=0`.
 
 ### Serial console (removed)
 
