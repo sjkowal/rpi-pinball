@@ -24,7 +24,10 @@ MPF_MODE=auto
 
 # -t  no ASCII text UI (a service has no terminal; the flag disables it)
 # -P  production mode: waits for hardware on start, exits if startup fails
-#     (systemd restarts it)
+#     (systemd restarts it). It loads a prebuilt config bundle
+#     (mpf_config.bundle, plus mpf_mc_config.bundle on 0.57) instead of the
+#     YAML; pinball-mpf-launch builds it if missing. After changing the MPF
+#     config, delete them: rm <machine folder>/*.bundle
 # -A  don't write config cache files
 MPF_ARGS="-t -P -A"
 

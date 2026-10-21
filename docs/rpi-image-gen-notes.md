@@ -684,3 +684,24 @@ Still to run on a Pi, from the handoff's tests:
 
 Untested on hardware specifically: cage started from a service, rather than from a login session, on 0.80.
 
+### Fix (v0.5.0 bug): `-P` needs a production config bundle
+
+Found on hardware on 2026-10-21. With autostart on, every start failed with `FileNotFoundError: .../machine/mpf_config.bundle`, and systemd restarted it every 5 s. In both 0.57.x and 0.80.x, `mpf/commands/game.py` uses `ProductionConfigLoader` instead of `YamlMultifileConfigLoader` when `-P` is set, and that loader reads a pickled bundle (`mpf_config.bundle`; `mpf_mc_config.bundle` for mpf-mc) made by `mpf build production_bundle`. mpf-mc 0.57 does the same under `-P`. The handoff listed `-P` without mentioning this.
+
+Checked in a `python:3.11-bookworm` container with `mpf==0.80.0`:
+- **The build works on 0.80** with `-b`.
+- **Without `-b` it fails** with `AssertionError: Could not import MPF-MC`, because the image has no mpf-mc. The same failure was reproduced on hardware.
+- **`mpf game -P -t -x -A` runs from the bundle** cleanly.
+- **A YAML change without a rebuild is not picked up:** the bundle kept the old switch list, with no warning.
+
+`-P` stays in the defaults. On 0.57 it's what bounds startup to 30 s, through MPF's production init timeout and mpf-mc's 30 s wait for a connection. Without it, `mpf both` can wait forever on an mpf-mc that never gets a connection, and the service looks active while nothing runs.
+
+**The fix, chosen by the user: build the bundle if it's missing.** `pinball-mpf-launch` runs `mpf build production_bundle` when `-P` is in `MPF_ARGS` and a bundle is missing. It adds `-b` for the `gmc` and `game` modes; `both` (0.57) also needs `mpf_mc_config.bundle`. It never rebuilds an existing bundle, so after a config change the user deletes `*.bundle`. That's documented in the README and in `/etc/default/pinball-mpf`. A failed build exits 75, so the service stops with the error rather than retrying every 5 s.
+
+Tested with a stand-in `mpf`:
+- 0.80 with no bundle: it builds with `-b`, then starts.
+- An existing bundle: it skips the build.
+- 0.57: it builds without `-b` and gets both bundles, including when only the mpf-mc bundle is missing.
+- No `-P`: no build.
+- A failed build: exit 75.
+

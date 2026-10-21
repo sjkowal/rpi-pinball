@@ -152,6 +152,11 @@ journalctl -u mpf -f       # follow MPF's output
   - `-t`: no text UI.
   - `-P`: production mode, which waits for hardware and exits if startup fails.
   - `-A`: no config cache files.
+- **Production mode reads a config bundle, not your YAML.** With `-P`, MPF loads a prebuilt, pickled copy of your config: `mpf_config.bundle` in the machine folder, plus `mpf_mc_config.bundle` for mpf-mc on 0.57. The service builds it with `mpf build production_bundle` (`-b` on 0.80) when it's missing. **It isn't rebuilt when you change your config,** and a stale bundle silently runs the old config. After editing the MPF config, delete the bundles and restart:
+  ```bash
+  rm ~/machine/*.bundle && sudo systemctl restart mpf
+  ```
+  Add `*.bundle` to the machine folder's `.gitignore`. If the build fails, for example from a config error, the service stops with the error in `journalctl -u mpf`; fix the config and run `pinball-autostart on`. Running MPF by hand without `-P` reads the YAML as usual.
 - **Restarts:** if MPF exits or crashes, systemd restarts it after 5 s. If there's no machine folder or autostart is off, it stops without restarting.
 - **Bench work:** `sudo systemctl stop mpf` before running MPF by hand, so two copies don't fight over the serial ports. It starts again at the next boot.
 - **Settings:** `/etc/default/pinball-mpf` holds the machine folder path, the mode (`auto`, `both`, `game` or `gmc`), the MPF flags, devices to wait for, and the audio device for MPF-MC. It's on the read-only root, so edit it with `sudo pinball-rw` and then run `sudo systemctl restart mpf`.
