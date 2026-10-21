@@ -36,6 +36,10 @@ MPF_ARGS="-t -P -A"
 WAIT_FOR_DEVICES=""
 DEVICE_TIMEOUT=30
 
+# MPF 0.80: the mouse pointer is hidden in the cage session. Set to 1 to
+# show it.
+#GMC_SHOW_CURSOR=1
+
 # Audio for MPF-MC (SDL), MPF 0.57. Card name from `aplay -l`. Leave unset to
 # use the ALSA default device.
 #SDL_AUDIODRIVER=alsa

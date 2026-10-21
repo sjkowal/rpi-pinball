@@ -120,7 +120,7 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner; all four images 
   ```
   It does two things:
   1. **Imports the Godot project's assets** with `godot --headless --import`. This step is **required**, not an optimisation. Running a project from source, which is what `mpf both` does, never imports assets; only the editor or `--import` does. Without it every image, sound and font fails to load (`No loader found for resource`), and new or changed assets fail again until the next import. When nothing changed, the import takes a few seconds.
-  2. **Starts `cage -- mpf both`.** Godot needs a display server, and cage provides a full-screen one. This works from the console and over SSH, because `seatd` gives cage the seat either way.
+  2. **Starts `cage -- mpf both`.** Godot needs a display server, and cage provides a full-screen one. This works from the console and over SSH, because `seatd` gives cage the seat either way. **The mouse pointer is hidden.** cage itself only hides it when no pointing device is connected, so `gmc-run` points cage and Godot at an all-transparent cursor theme. To keep the pointer, run `GMC_SHOW_CURSOR=1 gmc-run`, or set `GMC_SHOW_CURSOR=1` in `/etc/default/pinball-mpf` for MPF at boot.
 
   `mpf both` starts `godot` against the `project.godot` in your machine folder, or wherever `gmc.cfg`'s `gmc_project_path` points; `gmc-run` imports that same folder. Arguments after the folder go to `mpf both` (`gmc-run ~/machine -X`). `GMC_SKIP_IMPORT=1` skips the import. To do it by hand: `godot --headless --import`, then `cage -- mpf both`.
 

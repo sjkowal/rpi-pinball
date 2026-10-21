@@ -705,3 +705,22 @@ Tested with a stand-in `mpf`:
 - No `-P`: no build.
 - A failed build: exit 75.
 
+## Hiding the mouse pointer under cage
+
+Added 2026-10-21. With a pointing device connected, cage showed an arrow in the middle of the GMC display. It's also visible in the earlier garbled-text photo.
+
+Why a cursor theme, from the sources:
+- **cage 0.2.0 has no option to hide the cursor.** It hides it only when the seat has no pointer capability (`update_capabilities()` in `seat.c`). Its own cursor comes from `wlr_xcursor_manager_create(NULL, ...)`, so wlroots loads the theme named `default`. It doesn't advertise `wp_cursor_shape_manager_v1`, so clients draw their own cursors.
+- **Godot 4.7.2 on Wayland** loads `$XCURSOR_THEME`, or `default`, with `wl_cursor_theme_load()` (`wayland_thread.cpp`), looking up the names in its `cursor_names[]` and then `cursor_names_fallback[]`.
+- **The image has no cursor theme at all,** so both fell back to their built-in arrow.
+- **wlroots' and libwayland-cursor's Xcursor loaders both honour `XCURSOR_PATH`.**
+
+So `pinball-gmc` runs `pinball/assets/make-invisible-cursors.py` at build time. It writes `/usr/share/pinball/cursors-invisible/default/`: one 68-byte Xcursor file (a single 1×1 image with alpha 0, nominal size 24), plus 70 symlinks covering cage's default, every name in Godot's two lists, and the common freedesktop, CSS and X11 aliases. `gmc-run` exports `XCURSOR_PATH` pointing at that directory, but only when it starts cage itself, and not with `GMC_SHOW_CURSOR=1`. The system-wide `/usr/share/icons/default` is untouched.
+
+Checked with libXcursor (`XcursorLibraryLoadImage`, the same file format and `XCURSOR_PATH` search):
+- With the path set, all 31 names cage and Godot use resolve to the 1×1 transparent image, at sizes 24 and 48.
+- Without it, none resolve, which matches the built-in arrow seen on hardware.
+
+`gmc-run` was tested with stand-ins: the path is set for cage by default, and left unset with `GMC_SHOW_CURSOR=1`, inside an existing Wayland session, and when the theme isn't installed.
+
+**Not verified on hardware:** that the pointer is actually gone on screen, from both the console and the service.

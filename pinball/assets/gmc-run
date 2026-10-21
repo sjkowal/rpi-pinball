@@ -6,6 +6,7 @@
 #   gmc-run ~/machine            # explicit machine folder
 #   gmc-run ~/machine -X -v      # anything after the folder goes to `mpf both`
 #   GMC_SKIP_IMPORT=1 gmc-run    # skip the import step
+#   GMC_SHOW_CURSOR=1 gmc-run    # keep the mouse pointer visible
 #
 # Why the import step is not optional: running a Godot project (which is
 # what `mpf both` does -- it starts `godot` in the project folder) never
@@ -63,5 +64,15 @@ fi
 # other way): no need for a compositor of our own.
 if [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${DISPLAY:-}" ]; then
   exec "$MPF" both "$@"
+fi
+# Hide the mouse pointer: cage only hides it when no pointing device is
+# plugged in. cage draws its own cursor from the theme named "default" and
+# Godot from $XCURSOR_THEME or "default"; both search $XCURSOR_PATH, so
+# pointing that at an all-transparent "default" theme (installed by
+# pinball-gmc) hides it whichever of them draws it. Only for this cage
+# session -- the system-wide cursor theme is untouched.
+INVISIBLE_CURSORS=/usr/share/pinball/cursors-invisible
+if [ -z "${GMC_SHOW_CURSOR:-}" ] && [ -d "$INVISIBLE_CURSORS/default" ]; then
+  export XCURSOR_PATH="$INVISIBLE_CURSORS"
 fi
 exec cage -- "$MPF" both "$@"
