@@ -21,7 +21,7 @@ RuntimeDirectory=mpf
 RuntimeDirectoryMode=0700
 Restart=always
 RestartSec=5
-# 75 = no machine folder, or autostart off (see pinball-mpf-launch).
+# 75 = no MPF project folder, or autostart off (see pinball-mpf-launch).
 RestartPreventExitStatus=75
 
 [Install]

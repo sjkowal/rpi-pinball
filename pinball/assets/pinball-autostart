@@ -1,46 +1,46 @@
 #!/bin/bash
-# pinball-autostart -- switch MPF-at-boot on or off for the machine folder.
+# pinball-autostart -- switch MPF-at-boot on or off for the MPF project folder.
 #
 #   pinball-autostart on       # MPF starts at every boot, and starts now
 #   pinball-autostart off      # MPF no longer starts at boot, and stops now
 #   pinball-autostart status
 #
-# The switch is the file <machine folder>/.autostart on the writable DATA
+# The switch is the file <MPF project folder>/.autostart on the writable DATA
 # partition, so no maintenance mode is needed. Creating or removing it by
 # hand works too; it takes effect at the next boot (or `sudo systemctl
 # restart mpf`). This command also starts or stops mpf.service right away,
 # which uses sudo.
 #
-# The machine folder is MACHINE_DIR in /etc/default/pinball-mpf, or ~/machine
+# The MPF project folder is MPF_PROJECT_DIR in /etc/default/pinball-mpf, or ~/mpf-project
 # of the login user (UID 1000). Installed by the pinball-mpf-service layer.
 set -eu
 
-MACHINE_DIR=
+MPF_PROJECT_DIR=
 # shellcheck source=/dev/null
 [ -r /etc/default/pinball-mpf ] && . /etc/default/pinball-mpf
-if [ -z "${MACHINE_DIR:-}" ]; then
+if [ -z "${MPF_PROJECT_DIR:-}" ]; then
     # The service runs as UID 1000; use its home even under sudo.
-    MACHINE_DIR="$(getent passwd 1000 | cut -d: -f6)/machine"
+    MPF_PROJECT_DIR="$(getent passwd 1000 | cut -d: -f6)/mpf-project"
 fi
-FLAG="$MACHINE_DIR/.autostart"
+FLAG="$MPF_PROJECT_DIR/.autostart"
 
 die() { echo "pinball-autostart: $*" >&2; exit 1; }
 as_root() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
 
 case "${1:-status}" in
     on)
-        [ -d "$MACHINE_DIR" ] || die "no machine folder at $MACHINE_DIR -- clone one there first"
-        [ -d "$MACHINE_DIR/config" ] || echo "pinball-autostart: warning: $MACHINE_DIR has no config/ folder" >&2
+        [ -d "$MPF_PROJECT_DIR" ] || die "no MPF project folder at $MPF_PROJECT_DIR -- clone one there first"
+        [ -d "$MPF_PROJECT_DIR/config" ] || echo "pinball-autostart: warning: $MPF_PROJECT_DIR has no config/ folder" >&2
         touch "$FLAG"
         # Owned by the login user even when run with sudo.
         [ "$(id -u)" -ne 0 ] || chown 1000:1000 "$FLAG"
-        echo "Autostart on for $MACHINE_DIR. Starting MPF..."
+        echo "Autostart on for $MPF_PROJECT_DIR. Starting MPF..."
         as_root systemctl restart mpf
         echo "Follow it with: journalctl -u mpf -f"
         ;;
     off)
         rm -f "$FLAG"
-        echo "Autostart off for $MACHINE_DIR. Stopping MPF..."
+        echo "Autostart off for $MPF_PROJECT_DIR. Stopping MPF..."
         as_root systemctl stop mpf
         ;;
     status)
