@@ -7,7 +7,7 @@
 #  it needs. Selected by pinball/pinball-mpf80.yaml.
 #
 #  Why this shape: MPF 0.80's `mpf both` (mpf/commands/both.py) spawns
-#  `shutil.which("godot")` against the machine folder's project.godot, so a
+#  `shutil.which("godot")` against the MPF project folder's project.godot, so a
 #  `godot` on $PATH is all MPF needs -- no gmc.cfg edits. GMC itself is a
 #  Godot addon that lives in each game project (addons/mpf-gmc), so it is
 #  not shipped here. Unlike mpf-mc's SDL2, Godot 4 cannot draw straight to
@@ -27,9 +27,15 @@
 #  and the login user is already in video/render/input/audio via
 #  device-user-credentials' default groups.
 #
+#  The mouse pointer is hidden in gmc-run's cage session: cage only hides it
+#  when no pointing device is connected, so this layer generates an
+#  all-transparent Xcursor theme (pinball/assets/make-invisible-cursors.py)
+#  under /usr/share/pinball/cursors-invisible, and gmc-run points
+#  XCURSOR_PATH at it. GMC_SHOW_CURSOR=1 keeps the pointer.
+#
 #  Nothing here writes to the read-only root at runtime: Godot keeps its
 #  user data and shader cache under ~/.local/share/godot, i.e. on DATA.
-# X-Env-Layer-Version: 1.1.0
+# X-Env-Layer-Version: 1.2.0
 # X-Env-Layer-Requires: pinball-mpf
 #
 # X-Env-VarPrefix: gmc
@@ -102,6 +108,11 @@ mmdebstrap:
       # this rootfs (missing library, wrong architecture).
       chroot $1 env HOME=/root godot --headless --version
     - $BDEBSTRAP_HOOKS/enable-units "$1" seatd
+    - |-
+      # Invisible cursor theme for gmc-run's cage session -- see the header.
+      # Generated with the build host's python3 (stdlib only), straight into
+      # the rootfs.
+      python3 /home/imagegen/pinball/assets/make-invisible-cursors.py "$1/usr/share/pinball/cursors-invisible/default"
     - |-
       # Import assets, then `cage -- mpf both` -- see the header above.
       install -m 755 /home/imagegen/pinball/assets/gmc-run $1/usr/local/bin/gmc-run

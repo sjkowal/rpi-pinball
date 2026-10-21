@@ -2,10 +2,11 @@
 # gmc-run -- run an MPF 0.80 machine with its Godot Media Controller (GMC)
 # from source: import the Godot project's assets, then `mpf both` in cage.
 #
-#   gmc-run                      # machine folder = current directory
-#   gmc-run ~/machine            # explicit machine folder
-#   gmc-run ~/machine -X -v      # anything after the folder goes to `mpf both`
-#   GMC_SKIP_IMPORT=1 gmc-run    # skip the import step
+#   gmc-run                       # MPF project folder = current directory
+#   gmc-run ~/mpf-project         # explicit MPF project folder
+#   gmc-run ~/mpf-project -X -v   # anything after the folder goes to `mpf both`
+#   GMC_SKIP_IMPORT=1 gmc-run     # skip the import step
+#   GMC_SHOW_CURSOR=1 gmc-run     # keep the mouse pointer visible
 #
 # Why the import step is not optional: running a Godot project (which is
 # what `mpf both` does -- it starts `godot` in the project folder) never
@@ -20,17 +21,17 @@ set -euo pipefail
 
 die() { echo "gmc-run: $*" >&2; exit 1; }
 
-MACHINE="."
+MPF_PROJECT="."
 if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then
-  MACHINE="$1"
+  MPF_PROJECT="$1"
   shift
 fi
-[ -d "$MACHINE" ] || die "machine folder '$MACHINE' does not exist"
-# Run everything from the machine folder, so a relative gmc_project_path in
+[ -d "$MPF_PROJECT" ] || die "MPF project folder '$MPF_PROJECT' does not exist"
+# Run everything from the MPF project folder, so a relative gmc_project_path in
 # gmc.cfg resolves the same way for the import below and for `mpf both`.
-cd "$MACHINE"
+cd "$MPF_PROJECT"
 
-# The Godot project is the machine folder itself, unless gmc.cfg's [cli]
+# The Godot project is the MPF project folder itself, unless gmc.cfg's [cli]
 # section points elsewhere (the same key `mpf both` reads). A -g on the
 # command line is not looked at; use gmc.cfg for a separate project folder.
 PROJECT="."
@@ -39,7 +40,7 @@ if [ -f gmc.cfg ]; then
   cfg="${cfg%\"}"; cfg="${cfg#\"}"; cfg="${cfg%\'}"; cfg="${cfg#\'}"
   [ -z "$cfg" ] || PROJECT="$cfg"
 fi
-[ -f "$PROJECT/project.godot" ] || die "no project.godot in '$(cd "$PROJECT" 2>/dev/null && pwd || echo "$PROJECT")' -- is this a GMC machine folder?"
+[ -f "$PROJECT/project.godot" ] || die "no project.godot in '$(cd "$PROJECT" 2>/dev/null && pwd || echo "$PROJECT")' -- is this an MPF project folder with a GMC (Godot) project?"
 
 MPF="$(command -v mpf || echo /opt/mpf/venv/bin/mpf)"
 [ -x "$MPF" ] || die "cannot find mpf (expected /opt/mpf/venv/bin/mpf)"
@@ -63,5 +64,15 @@ fi
 # other way): no need for a compositor of our own.
 if [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${DISPLAY:-}" ]; then
   exec "$MPF" both "$@"
+fi
+# Hide the mouse pointer: cage only hides it when no pointing device is
+# plugged in. cage draws its own cursor from the theme named "default" and
+# Godot from $XCURSOR_THEME or "default"; both search $XCURSOR_PATH, so
+# pointing that at an all-transparent "default" theme (installed by
+# pinball-gmc) hides it whichever of them draws it. Only for this cage
+# session -- the system-wide cursor theme is untouched.
+INVISIBLE_CURSORS=/usr/share/pinball/cursors-invisible
+if [ -z "${GMC_SHOW_CURSOR:-}" ] && [ -d "$INVISIBLE_CURSORS/default" ]; then
+  export XCURSOR_PATH="$INVISIBLE_CURSORS"
 fi
 exec cage -- "$MPF" both "$@"

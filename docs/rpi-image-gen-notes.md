@@ -684,3 +684,54 @@ Still to run on a Pi, from the handoff's tests:
 
 Untested on hardware specifically: cage started from a service, rather than from a login session, on 0.80.
 
+### Fix (v0.5.0 bug): `-P` needs a production config bundle
+
+Found on hardware on 2026-10-21. With autostart on, every start failed with `FileNotFoundError: .../machine/mpf_config.bundle`, and systemd restarted it every 5 s. In both 0.57.x and 0.80.x, `mpf/commands/game.py` uses `ProductionConfigLoader` instead of `YamlMultifileConfigLoader` when `-P` is set, and that loader reads a pickled bundle (`mpf_config.bundle`; `mpf_mc_config.bundle` for mpf-mc) made by `mpf build production_bundle`. mpf-mc 0.57 does the same under `-P`. The handoff listed `-P` without mentioning this.
+
+Checked in a `python:3.11-bookworm` container with `mpf==0.80.0`:
+- **The build works on 0.80** with `-b`.
+- **Without `-b` it fails** with `AssertionError: Could not import MPF-MC`, because the image has no mpf-mc. The same failure was reproduced on hardware.
+- **`mpf game -P -t -x -A` runs from the bundle** cleanly.
+- **A YAML change without a rebuild is not picked up:** the bundle kept the old switch list, with no warning.
+
+`-P` stays in the defaults. On 0.57 it's what bounds startup to 30 s, through MPF's production init timeout and mpf-mc's 30 s wait for a connection. Without it, `mpf both` can wait forever on an mpf-mc that never gets a connection, and the service looks active while nothing runs.
+
+**The fix, chosen by the user: build the bundle if it's missing.** `pinball-mpf-launch` runs `mpf build production_bundle` when `-P` is in `MPF_ARGS` and a bundle is missing. It adds `-b` for the `gmc` and `game` modes; `both` (0.57) also needs `mpf_mc_config.bundle`. It never rebuilds an existing bundle, so after a config change the user deletes `*.bundle`. That's documented in the README and in `/etc/default/pinball-mpf`. A failed build exits 75, so the service stops with the error rather than retrying every 5 s.
+
+Tested with a stand-in `mpf`:
+- 0.80 with no bundle: it builds with `-b`, then starts.
+- An existing bundle: it skips the build.
+- 0.57: it builds without `-b` and gets both bundles, including when only the mpf-mc bundle is missing.
+- No `-P`: no build.
+- A failed build: exit 75.
+
+
+
+## Hiding the mouse pointer under cage
+
+Added 2026-10-21. With a pointing device connected, cage showed an arrow in the middle of the GMC display. It's also visible in the earlier garbled-text photo.
+
+Why a cursor theme, from the sources:
+- **cage 0.2.0 has no option to hide the cursor.** It hides it only when the seat has no pointer capability (`update_capabilities()` in `seat.c`). Its own cursor comes from `wlr_xcursor_manager_create(NULL, ...)`, so wlroots loads the theme named `default`. It doesn't advertise `wp_cursor_shape_manager_v1`, so clients draw their own cursors.
+- **Godot 4.7.2 on Wayland** loads `$XCURSOR_THEME`, or `default`, with `wl_cursor_theme_load()` (`wayland_thread.cpp`), looking up the names in its `cursor_names[]` and then `cursor_names_fallback[]`.
+- **The image has no cursor theme at all,** so both fell back to their built-in arrow.
+- **wlroots' and libwayland-cursor's Xcursor loaders both honour `XCURSOR_PATH`.**
+
+So `pinball-gmc` runs `pinball/assets/make-invisible-cursors.py` at build time. It writes `/usr/share/pinball/cursors-invisible/default/`: one 68-byte Xcursor file (a single 1×1 image with alpha 0, nominal size 24), plus 70 symlinks covering cage's default, every name in Godot's two lists, and the common freedesktop, CSS and X11 aliases. `gmc-run` exports `XCURSOR_PATH` pointing at that directory, but only when it starts cage itself, and not with `GMC_SHOW_CURSOR=1`. The system-wide `/usr/share/icons/default` is untouched.
+
+Checked with libXcursor (`XcursorLibraryLoadImage`, the same file format and `XCURSOR_PATH` search):
+- With the path set, all 31 names cage and Godot use resolve to the 1×1 transparent image, at sizes 24 and 48.
+- Without it, none resolve, which matches the built-in arrow seen on hardware.
+
+`gmc-run` was tested with stand-ins: the path is set for cage by default, and left unset with `GMC_SHOW_CURSOR=1`, inside an existing Wayland session, and when the theme isn't installed.
+
+**Not verified on hardware:** that the pointer is actually gone on screen, from both the console and the service.
+
+## Default project folder renamed: `~/machine` → `~/mpf-project`
+
+Changed 2026-10-21, at the user's request. The default MPF project folder ("machine folder" in MPF's own docs) is now `~/mpf-project`, and the variable names follow it:
+- `MACHINE_DIR` is now `MPF_PROJECT_DIR`, in `/etc/default/pinball-mpf`, `pinball-mpf-launch` and `pinball-autostart`.
+- `gmc-run`'s internal `MACHINE` is now `MPF_PROJECT`.
+
+Shell variable names can't contain `-`, so `mpf-project` is spelled `MPF_PROJECT`. Script messages and comments say "MPF project folder". The sections above are left as written, with `~/machine` and `MACHINE_DIR`. A Pi that ran v0.5.0 needs `mv ~/machine ~/mpf-project`, or `MPF_PROJECT_DIR` set to the old path. The `.autostart` flag moves with the folder.
+

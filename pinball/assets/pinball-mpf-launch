@@ -3,7 +3,8 @@
 # folder, if autostart is switched on for it. A wrapper because systemd
 # doesn't allow a variable as the program path in ExecStart.
 #
-# Exit status 75 means "not configured" (no machine folder, or autostart off):
+# Exit status 75 means "not configured" (no MPF project folder, autostart off, an
+# unknown MPF_MODE, or a production bundle that fails to build):
 # mpf.service lists it in RestartPreventExitStatus=, so systemd does not
 # restart the service in a loop. Anything else -- MPF exiting, crashing, or
 # failing to find its hardware in production mode (-P) -- is restarted.
@@ -14,7 +15,7 @@ set -eu
 
 NOT_CONFIGURED=75
 
-: "${MACHINE_DIR:=}"
+: "${MPF_PROJECT_DIR:=}"
 : "${MPF_MODE:=auto}"
 : "${MPF_ARGS:=-t -P -A}"
 : "${WAIT_FOR_DEVICES:=}"
@@ -22,14 +23,14 @@ NOT_CONFIGURED=75
 
 # systemd sets HOME for User= services; fall back to the passwd entry.
 HOME="${HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)}"
-[ -n "$MACHINE_DIR" ] || MACHINE_DIR="$HOME/machine"
+[ -n "$MPF_PROJECT_DIR" ] || MPF_PROJECT_DIR="$HOME/mpf-project"
 
-if [ ! -d "$MACHINE_DIR" ]; then
-    echo "No machine folder at $MACHINE_DIR; not starting MPF. Clone one there, or set MACHINE_DIR in /etc/default/pinball-mpf."
+if [ ! -d "$MPF_PROJECT_DIR" ]; then
+    echo "No MPF project folder at $MPF_PROJECT_DIR; not starting MPF. Clone one there, or set MPF_PROJECT_DIR in /etc/default/pinball-mpf."
     exit "$NOT_CONFIGURED"
 fi
-if [ ! -e "$MACHINE_DIR/.autostart" ]; then
-    echo "Autostart is off for $MACHINE_DIR; not starting MPF. Turn it on with: pinball-autostart on"
+if [ ! -e "$MPF_PROJECT_DIR/.autostart" ]; then
+    echo "Autostart is off for $MPF_PROJECT_DIR; not starting MPF. Turn it on with: pinball-autostart on"
     exit "$NOT_CONFIGURED"
 fi
 
@@ -41,6 +42,35 @@ case "$MPF_MODE" in
         exit "$NOT_CONFIGURED" ;;
 esac
 
+# Production mode (-P) doesn't read the YAML config: it loads a prebuilt,
+# pickled bundle from the MPF project folder and fails without one. Build it
+# when it's missing. It is NOT rebuilt when the config changes -- delete
+# the *.bundle files (or run the build by hand) after editing the config.
+# gmc/game modes have no mpf-mc, so they build the MPF bundle only (-b;
+# without it the build fails with "Could not import MPF-MC"). `both` on
+# MPF 0.57 needs mpf-mc's bundle as well, since mpf-mc reads it under -P too.
+case " $MPF_ARGS " in
+    *" -P "*)
+        bundles="$MPF_PROJECT_DIR/mpf_config.bundle"
+        build_args=""
+        if [ "$MPF_MODE" = both ]; then
+            bundles="$bundles $MPF_PROJECT_DIR/mpf_mc_config.bundle"
+        else
+            build_args="-b"
+        fi
+        missing=0
+        for b in $bundles; do [ -e "$b" ] || missing=1; done
+        if [ "$missing" = 1 ]; then
+            echo "Building production config bundle: mpf build production_bundle${build_args:+ $build_args}"
+            # shellcheck disable=SC2086  # build_args is empty or -b
+            if ! (cd "$MPF_PROJECT_DIR" && /opt/mpf/venv/bin/mpf build production_bundle $build_args); then
+                # A config error needs a person, not a restart every 5 s.
+                echo "Building the production bundle failed (see above). Fix the MPF config, then: pinball-autostart on"
+                exit "$NOT_CONFIGURED"
+            fi
+        fi ;;
+esac
+
 for dev in $WAIT_FOR_DEVICES; do
     for _ in $(seq 1 "$DEVICE_TIMEOUT"); do
         [ -e "$dev" ] && break
@@ -49,8 +79,8 @@ for dev in $WAIT_FOR_DEVICES; do
     [ -e "$dev" ] || echo "warning: $dev not present after ${DEVICE_TIMEOUT}s; starting anyway"
 done
 
-cd "$MACHINE_DIR"
-echo "Starting MPF ($MPF_MODE) in $MACHINE_DIR"
+cd "$MPF_PROJECT_DIR"
+echo "Starting MPF ($MPF_MODE) in $MPF_PROJECT_DIR"
 # shellcheck disable=SC2086  # MPF_ARGS is deliberately word-split
 case "$MPF_MODE" in
     gmc)
@@ -58,7 +88,7 @@ case "$MPF_MODE" in
         # service has no login session to provide /run/user/<uid>.
         # mpf.service creates /run/mpf (RuntimeDirectory=, mode 0700).
         export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/mpf}"
-        exec gmc-run "$MACHINE_DIR" $MPF_ARGS ;;
+        exec gmc-run "$MPF_PROJECT_DIR" $MPF_ARGS ;;
     both|game)
         exec /opt/mpf/venv/bin/mpf "$MPF_MODE" $MPF_ARGS ;;
 esac
