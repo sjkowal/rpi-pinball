@@ -120,6 +120,18 @@ def _mpf_line_of(entry):
     return f"0.{m.group(1)}" if m else LEGACY_MPF_LINE
 
 
+def _release_rank(entry):
+    """Sortable release version from the entry's GitHub download URL.
+
+    .../releases/download/v0.6.0/... -> (0, 6, 0). Two releases published
+    on the same UTC day tie on release_date, so this is what keeps the
+    newer one on top. Entries without a release URL (a local file:// build)
+    sort as ().
+    """
+    m = re.search(r"/releases/download/v?(\d+)\.(\d+)\.(\d+)", entry.get("url", ""))
+    return tuple(int(p) for p in m.groups()) if m else ()
+
+
 def _mpf_rank(entry):
     """Sortable form of the MPF line: 0.80 -> (0, 80)."""
     try:
@@ -169,15 +181,17 @@ def build_entry(img, url, model, mpf, xz=None, name=None, description=None,
 
 
 def build_repo(entries, icon=None):
-    # Newest release first; within one release date the models in
-    # MODEL_ORDER (negated so reverse=True still puts pi5 ahead of pi4), and
-    # within a model the newest MPF line first. Imager filters by board, so a
+    # Newest release first -- by date, then by version, since two releases
+    # can share a UTC date -- then the models in MODEL_ORDER (negated so
+    # reverse=True still puts pi5 ahead of pi4), and within a model the
+    # newest MPF line first. Imager filters by board, so a
     # Pi 5 user sees each release's MPF 0.80 entry directly above its 0.57
     # one. Sorting on name instead would interleave releases. Imager displays
     # entries in document order.
     entries = sorted(
         entries,
-        key=lambda e: (e.get("release_date", ""), -_model_rank(e), _mpf_rank(e)),
+        key=lambda e: (e.get("release_date", ""), _release_rank(e),
+                       -_model_rank(e), _mpf_rank(e)),
         reverse=True,
     )
     if icon is not None:

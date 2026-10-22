@@ -1,0 +1,84 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-boot-time
+# X-Env-Layer-Category: boot
+# X-Env-Layer-Desc: Faster boot for an appliance that runs one game. Edits
+#  upstream's boot-firmware templates (config.txt, cmdline.txt) after the
+#  rpi-boot-firmware layer installs them, and trims userspace:
+#
+#  - No initramfs (auto_initramfs=0), unless the rpi-splash-screen layer is
+#    configured -- the splash is displayed from the initramfs. Root is found
+#    by PARTUUID, which the kernel resolves itself, and the 2712/v8 kernels
+#    have SD/eMMC, NVMe, USB storage and ext4 built in; the initramfs only
+#    carried a udev rule the real root runs again anyway. `ro` is added to
+#    the kernel command line, since without an initramfs the kernel would
+#    otherwise mount root read-write (and fsck can't check a rw root).
+#    The initramfs is also no longer *made* or copied: the kernel package
+#    hard-depends on initramfs-tools, which builds /boot/initrd.img-* on
+#    every kernel install, and raspi-firmware's hook copies it to the small
+#    boot partition (11 MB of its ~45 MB) unless /etc/default/raspi-firmware
+#    says INITRAMFS=no. That setting is written here, so kernel upgrades
+#    don't copy it back, and the build-time copy on the boot partition is
+#    removed. /boot/initrd.img-* on the root partition stays: rpi-image-gen's
+#    own final customize60-initramfs-tools step regenerates it after every
+#    layer's hooks. It's unused and costs 11 MB of the 4 GB root.
+#  - No serial console: console=serial0,115200 removed (the kernel writes
+#    its log to the UART at 115200 baud, which slows boot), bootloader
+#    second-stage UART logging off (uart_2ndstage=0). See the README for
+#    how to turn the serial console back on.
+#  - `quiet loglevel=3` on the kernel command line; camera auto-detect off;
+#    the firmware's rainbow splash off.
+#  - multi-user.target as the default (graphical.target pulled in nothing
+#    useful), and the apt-daily timers off: they can't work on the
+#    read-only root and would only add disk activity soon after boot.
+#
+#  Deliberately NOT done: `fastboot` (skips fsck on every filesystem,
+#  including DATA, whose repair after a power cut the image relies on);
+#  dtparam=audio=off and display_auto_detect=0 (would break the Pi 4's
+#  3.5 mm audio and DSI screens); EEPROM settings (per board -- see
+#  pinball-eeprom-tune, installed here).
+# X-Env-Layer-Version: 1.1.0
+# X-Env-Layer-Requires: rpi-boot-firmware
+# METAEND
+---
+mmdebstrap:
+  customize-hooks:
+    - |-
+      # config.txt: each edit is checked, so a changed upstream template
+      # fails the build instead of silently not applying.
+      set -eu
+      CFG="$1/boot/firmware/config.txt"
+      sed -i 's/^camera_auto_detect=1$/camera_auto_detect=0/' "$CFG"
+      sed -i 's/^uart_2ndstage=1$/uart_2ndstage=0/' "$CFG"
+      grep -qx 'camera_auto_detect=0' "$CFG"
+      grep -qx 'uart_2ndstage=0' "$CFG"
+      if [ -n "${IGconf_layer_splash_screen:-}" ]; then
+        echo "pinball-boot-time: rpi-splash-screen is configured; keeping the initramfs"
+      else
+        sed -i 's/^auto_initramfs=1$/auto_initramfs=0/' "$CFG"
+        grep -qx 'auto_initramfs=0' "$CFG"
+        # Stop raspi-firmware copying it to the boot partition, now and on
+        # future kernel upgrades (its post-update hook only copies when
+        # INITRAMFS=auto, the default), and remove the build-time copy.
+        mkdir -p "$1/etc/default"
+        printf '# pinball-boot-time: the image boots without an initramfs\nINITRAMFS=no\n' > "$1/etc/default/raspi-firmware"
+        rm -fv "$1"/boot/firmware/initramfs*
+      fi
+      printf '\n[all]\n# pinball-boot-time: no rainbow splash from the firmware\ndisable_splash=1\n' >> "$CFG"
+    - |-
+      # cmdline.txt is a single line. Remove the serial console; add `ro`
+      # and `quiet loglevel=3` unless already present. root= is filled in
+      # later by pinball/image/pinball-rpios/setup.sh.
+      set -eu
+      CMD="$1/boot/firmware/cmdline.txt"
+      sed -i 's/console=serial0,[0-9]* *//' "$CMD"
+      for opt in ro quiet loglevel=3; do
+        grep -qw -- "$opt" "$CMD" || sed -i "1 s/\$/ $opt/" "$CMD"
+      done
+      # Not `! grep`: set -e ignores a negated command.
+      if grep -q 'console=serial0' "$CMD"; then
+        echo "pinball-boot-time: console=serial0 still in $CMD" >&2; exit 1
+      fi
+      cat "$CMD"
+    - chroot $1 systemctl set-default multi-user.target
+    - chroot $1 systemctl disable apt-daily.timer apt-daily-upgrade.timer
+    - install -m 755 /home/imagegen/pinball/assets/pinball-eeprom-tune $1/usr/local/bin/pinball-eeprom-tune

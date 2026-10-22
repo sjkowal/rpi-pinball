@@ -735,3 +735,85 @@ Changed 2026-10-21, at the user's request. The default MPF project folder ("mach
 
 Shell variable names can't contain `-`, so `mpf-project` is spelled `MPF_PROJECT`. Script messages and comments say "MPF project folder". The sections above are left as written, with `~/machine` and `MACHINE_DIR`. A Pi that ran v0.5.0 needs `mv ~/machine ~/mpf-project`, or `MPF_PROJECT_DIR` set to the old path. The `.autostart` flag moves with the folder.
 
+
+## Boot time
+
+Added 2026-10-21, from a fast-boot handoff written for a generic CM5 image. It was checked against what this image actually does at boot, by mounting a built image.
+
+### What the image did at boot before
+- **config.txt** came from upstream's `templates/rpi/boot-firmware/config.txt`, with `auto_initramfs=1`, `camera_auto_detect=1`, `display_auto_detect=1`, `dtparam=audio=on` and `[all] uart_2ndstage=1`. The `[pi5] BOOT_UART=1` line in that file is an EEPROM key and has no effect in `config.txt`.
+- **cmdline.txt** was `console=serial0,115200 console=tty1 root=PARTUUID=… fsck.repair=yes rootwait`.
+- **The initramfs** was an 11 MB `initramfs_2712` loaded at every boot. Its only payload was `99-rpi-05-image.rules`, the by-slot symlinks, which the real root's udev runs again anyway. Root is `root=PARTUUID=`, which the kernel resolves without help. `/boot/config-6.12.109+rpt-rpi-2712` has `MMC_SDHCI_BRCMSTB`, `MMC_SDHCI_IPROC`, `MMC_BLOCK`, `BLK_DEV_NVME`, `PCIE_BRCMSTB`, `USB_STORAGE`, `USB_UAS`, `BLK_DEV_SD` and `EXT4_FS` all `=y`.
+- **The default target** was `graphical.target`, which pulls in nothing useful on this image.
+- **Network:** only `rescue-ssh.target` `Wants=network-online.target`, so neither wait-online service runs at a normal boot.
+- **Already absent:** ModemManager, bluetooth, avahi, triggerhappy, man-db, dphys-swapfile, the rpi-eeprom-update service and cloud-init are not installed. The apt-daily timers were enabled, and fail on the read-only root.
+
+### What `pinball-boot-time` changes
+The layer has `X-Env-Layer-Requires: rpi-boot-firmware`, so its hooks run after the templates are installed, and every edit is checked with a `grep`:
+- **`auto_initramfs=0`,** unless `IGconf_layer_splash_screen` is set, because rpi-splash-screen displays its image from the initramfs.
+- **`ro` added to the kernel command line.** Without an initramfs, the kernel itself mounts root, read-write unless told otherwise. Root must be mounted read-only both for the read-only design and for `systemd-fsck-root`.
+- **The serial console is removed,** and `uart_2ndstage=0`.
+- **`quiet loglevel=3`.**
+- **`camera_auto_detect=0` and `disable_splash=1`.**
+- **`systemctl set-default multi-user.target`,** and the apt-daily and apt-daily-upgrade timers are disabled.
+
+Not done:
+- **`fastboot`.** It's `fsck.mode=skip` for every filesystem, DATA included.
+- **Audio and display auto-detect.** Changing them would break the Pi 4's 3.5 mm audio and DSI screens.
+- **EEPROM.** It's per board; there's a helper, below.
+- **A custom kernel.**
+
+A negated test in the hook (`! grep …`) was replaced with an explicit `if`, because bash's `set -e` ignores `!` commands, so the check could never have failed the build.
+
+### `pinball-eeprom-tune`
+- **How it works:** it reads the current bootloader config with `rpi-eeprom-config`. It tells a Pi 5/CM5 (`bcm2712`) from a Pi 4 (`bcm2711`) using `/proc/device-tree/compatible`, and picks `BOOT_ORDER` from the root device: `mmcblk` gives `0xf1`, `nvme` gives `0xf6` (refused on a Pi 4), `sd` gives `0xf4`. It then sets `NET_INSTALL_ENABLED=0`, `DISABLE_HDMI=1` and `BOOT_UART=0`, plus `WAIT_FOR_POWER_BUTTON=0` on a 2712.
+- **Where keys go:** keys in the `[all]` scope (top level or `[all]`) are replaced in place; missing ones are inserted after the first `[all]`, or at the top. Conditional sections such as `[gpio8=0]` are left alone.
+- **Show and apply:** by default it shows a diff and changes nothing. `--apply` backs up to `~/eeprom-config.backup-*`, asks y/N, and runs `rpi-eeprom-config --apply` between `pinball-rw` and `pinball-ro`, because the update is staged on the read-only boot partition.
+- **`PSU_MAX_CURRENT`** is never set, because it's only safe with a real 5 A supply.
+- **Tests,** with a stand-in device tree and `rpi-eeprom-config`:
+  - a Pi 5 booting from SD, and a Pi 4 from USB;
+  - an NVMe root on a Pi 4, which it refuses;
+  - an already-tuned board, which reports nothing to do;
+  - a config with no `[all]` and a conditional section;
+  - `--apply` answered n, which changes nothing, and y, which backs up and applies.
+
+  A first version wrongly inserted keys *above* an existing `[all]` line, and was rewritten.
+
+### Skipping an unchanged Godot import (`gmc-run`, 0.80)
+- **The stamp:** `.godot/pinball-import.stamp` is written after a successful import. Godot writes `*.import` sidecar files next to the assets while importing, so those must be older than the stamp.
+- **What counts as a change:**
+  - anything newer than the stamp, from `find -newer` below the project folder, excluding `.godot`, `logs`, `data`, `.git`, `.autostart` and `*.bundle`;
+  - or a different list of top-level names, minus the same set, which the stamp file also stores.
+
+  The list is there because a deletion only shows as a newer *directory* timestamp. The project folder's own timestamp also changes whenever MPF creates `logs/` or a bundle, so it can't be used.
+- **Tests,** with the real Godot 4.7.2 arm64 binary and the GMC 1.0.0 addon (`mpf` and `cage` stubbed), 14 cases:
+  - **Imports when they should:** a fresh project (two passes); an edited script; a new top-level asset; a top-level deletion; a new and then a deleted asset in a subfolder; and `GMC_FORCE_IMPORT=1`.
+  - **Skips when it should:** an unchanged rerun; MPF writing `logs/`, `data/`, bundles and `.autostart`; more MPF log output with autostart switched off; every rerun after an import; and `GMC_SKIP_IMPORT=1`.
+
+  A first version used `-mindepth 1` alone and missed top-level deletions.
+
+### Not verified on hardware
+- **Boot with no initramfs** on Pi 4, Pi 5 and CM5, from SD, eMMC, NVMe and USB as used.
+- **`/boot/firmware` mounting** via the by-slot symlink from the real root's udev.
+- **`systemd-fsck-root` and the read-only root** with `ro` from the kernel.
+- **Before/after timings:** `systemd-analyze`, and time-to-MPF from `journalctl -u mpf -o short-monotonic`.
+- **`pinball-eeprom-tune --apply`** on a real bootloader.
+
+### Follow-up: the initramfs was still built, copied, and filled the boot partition
+
+Found on hardware on 2026-10-21. `pinball-eeprom-tune --apply` on a CM5 Lite (NVMe, v0.7.0-rc1) failed with `cp: error writing '/boot/firmware/pieeprom.upd': No space left on device`. The cause:
+- **`boot_part_size: 100%` sizes BOOT to fit its contents.** Both the Pi 5 and Pi 4 images had a 45 MB boot partition with ~450 KB free.
+- **11 MB of that was the initramfs, which `auto_initramfs=0` had already made unused.** `linux-image-*` hard-depends on `initramfs-tools`, whose `/etc/kernel/postinst.d/initramfs-tools` builds `/boot/initrd.img-*`. Then `raspi-firmware`'s `/etc/initramfs/post-update.d/z50-raspi-firmware` copies it to `/boot/firmware/initramfs{8,_2712}`, but only while `INITRAMFS` (from `/etc/default/raspi-firmware`) is `auto`, its default.
+- **Nothing later in the pipeline regenerates it.** No layer in this repo or upstream calls `update-initramfs`.
+
+The fix, in `pinball-boot-time` 1.1.0, again skipped when the splash layer is configured: it writes `INITRAMFS=no` to `/etc/default/raspi-firmware`, so kernel upgrades don't copy it back, and deletes `/boot/firmware/initramfs*`.
+
+Two things showed up in the build that tested it:
+- **Removing the file freed nothing at first.** With `100%`, the partition shrank to fit its new contents, 35 MB with ~470 KB still free. So `boot_part_size` is now a fixed `45M`: the size it already was in practice, kept as the user asked, but now with ~11 MB actually free. The README explains the limits.
+- **Deleting `/boot/initrd.img-*` on the root partition is pointless.** rpi-image-gen's own `scripts/bdebstrap/customize60-initramfs-tools`, which runs after every layer's hooks, regenerates it (`update-initramfs: Generating /boot/initrd.img-…`). With `INITRAMFS=no` it no longer reaches the boot partition, so the root copy is left alone: unused, and 11 MB of the 4 GB root.
+
+`pinball-eeprom-tune` now also:
+- **Checks for room first:** at least 4096 KB free on `/boot/firmware`, checked before the confirmation prompt. If there's too little, it says so, with the `rm` fix when `auto_initramfs=0`, and changes nothing.
+- **Replaces a stale comment block** directly above `BOOT_ORDER`, but only one that mentions `BOOT_ORDER`, such as the stock "SD -> NVMe -> USB -> Network", with one describing the new value.
+- **Tests,** using the CM5's real config: the stale comment is replaced; an unrelated comment is kept; a full 1 MB boot partition is refused with no backup made; a roomy 16 MB one applies.
+
