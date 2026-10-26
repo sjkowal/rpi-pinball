@@ -2,13 +2,23 @@
 # X-Env-Layer-Name: pinball-mpf-mc
 # X-Env-Layer-Category: app-misc
 # X-Env-Layer-Desc: The legacy Kivy/SDL2 media controller (mpf-mc) for the
-#  MPF 0.57 line, installed into pinball-mpf's venv. Selected by
-#  pinball/pinball-mpf57.yaml. MPF 0.80 dropped mpf-mc in favour of the
-#  Godot Media Controller (pinball-gmc), so this layer is 0.57-only. Split
-#  out of pinball-mpf unchanged: same packages, same pip pin, so a 0.57
-#  image has exactly the contents it had before the split.
-# X-Env-Layer-Version: 1.0.0
+#  MPF 0.57 and 0.58 lines, installed into pinball-mpf's venv. Selected by
+#  pinball/pinball-mpf57.yaml and pinball-mpf58.yaml. MPF 0.80+ use the
+#  Godot Media Controller (pinball-gmc) instead.
+#
+#  There is no mpf-mc 0.58: the newest release, 0.57.1, requires
+#  "mpf >= 0.57.0" and serves both lines. It also requires Python < 3.12
+#  (Kivy 2.2.1), which is why these lines stay on Debian's Python 3.11.
+# X-Env-Layer-Version: 2.0.0
 # X-Env-Layer-Requires: pinball-mpf
+#
+# X-Env-VarPrefix: mpfmc
+#
+# X-Env-Var-version: 0.57.1
+# X-Env-Var-version-Desc: Exact mpf-mc release to install.
+# X-Env-Var-version-Required: n
+# X-Env-Var-version-Valid: regex:^[0-9]+\.[0-9]+\.[0-9]+$
+# X-Env-Var-version-Set: y
 # METAEND
 ---
 mmdebstrap:
@@ -29,9 +39,9 @@ mmdebstrap:
     - cmake
   customize-hooks:
     - |-
-      # Same compatible-release pin as MPF core, from the same variable, so
-      # mpf and mpf-mc always come from one release line.
-      chroot $1 /opt/mpf/venv/bin/pip install "mpf-mc~=$IGconf_mpf_version.0"
+      # mpf is named again, at its exact version, so resolving mpf-mc's
+      # "mpf >= 0.57.0" can never move it.
+      chroot $1 /opt/mpf/venv/bin/pip install "mpf==$IGconf_mpf_version" "mpf-mc==$IGconf_mpfmc_version"
     - |-
       # pinball-mpf chowned /opt/mpf to the login user before this layer
       # ran; pip just left root-owned files behind, so redo it.
@@ -41,3 +51,6 @@ mmdebstrap:
       # point group, which mpf's CLI loads through pkg_resources -- so
       # re-check the CLI now that there is something for it to load.
       chroot $1 env HOME=/root /opt/mpf/venv/bin/mpf --help > /dev/null
+    - |-
+      # And MPF is still exactly the pinned version after mpf-mc's install.
+      chroot $1 /opt/mpf/venv/bin/python -c "import sys, mpf._version as v, mpfmc._version as m; print('MPF', v.__version__, '+ MPF-MC', m.__version__); sys.exit(v.__version__ != '$IGconf_mpf_version')"

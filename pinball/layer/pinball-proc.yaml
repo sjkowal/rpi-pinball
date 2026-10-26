@@ -71,7 +71,8 @@ mmdebstrap:
       chroot $1 bash -e -c '
         rm -rf /tmp/pypinproc
         git clone --depth 1 https://github.com/missionpinball/pypinproc.git /tmp/pypinproc
-        /opt/mpf/venv/bin/pip install /tmp/pypinproc
+        # CC=gcc: a python-build-standalone Python (0.80/0.81) names clang.
+        CC=gcc CXX=g++ /opt/mpf/venv/bin/pip install /tmp/pypinproc
         rm -rf /tmp/pypinproc
         /opt/mpf/venv/bin/python -c "import pinproc; print(\"pinproc extension OK:\", pinproc.__file__)"
       '

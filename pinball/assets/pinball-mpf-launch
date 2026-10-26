@@ -48,7 +48,7 @@ esac
 # the *.bundle files (or run the build by hand) after editing the config.
 # gmc/game modes have no mpf-mc, so they build the MPF bundle only (-b;
 # without it the build fails with "Could not import MPF-MC"). `both` on
-# MPF 0.57 needs mpf-mc's bundle as well, since mpf-mc reads it under -P too.
+# MPF 0.57/0.58 needs mpf-mc's bundle as well, since mpf-mc reads it under -P too.
 case " $MPF_ARGS " in
     *" -P "*)
         bundles="$MPF_PROJECT_DIR/mpf_config.bundle"

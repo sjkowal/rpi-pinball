@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   # Cheap, once per run: resolve the version and enforce the release guard
-  # before spending four arm64 runners on it. The guard checks config files
+  # before spending eight arm64 runners on it. The guard checks config files
   # shared by every leg, so running it per matrix leg would be redundant.
   prepare:
     runs-on: ubuntu-24.04
@@ -62,7 +62,7 @@ jobs:
       matrix:
         model: [pi4, pi5]
         # Quoted: unquoted YAML would read 0.80 as the float 0.8.
-        mpf: ['0.57', '0.80']
+        mpf: ['0.57', '0.58', '0.80', '0.81']
     env:
       # Read by scripts/image-name.sh (and so build.sh) in every step below.
       MPF_VERSION: ${{ matrix.mpf }}
@@ -78,7 +78,7 @@ jobs:
           df -h /
 
       # One canonical basename per leg, from the same script build.sh uses, so
-      # every asset below agrees: pinbos-mpf80-rpi5-v0.4.0
+      # every asset below agrees: pinbos-mpf0.81.0-rpi5-v0.8.0
       - name: Resolve artifact name
         env:
           TAG: ${{ needs.prepare.outputs.tag }}
@@ -103,11 +103,15 @@ jobs:
         run: |
           df -h /
           ls -la
+          # Empty on the mpf-mc lines (Debian's Python).
+          PYTHON_VERSION="$("$GITHUB_WORKSPACE/scripts/image-name.sh" --python-version)"
           xz -T0 "$XZ_LEVEL" -k -v "$BASE.img"
           sha256sum "$BASE.img.xz" > "$BASE.img.xz.sha256"
           python3 "$GITHUB_WORKSPACE/imager/gen-os-list.py" entry \
             --img "$BASE.img" --xz "$BASE.img.xz" \
             --model "$MODEL" --mpf "$MPF_VERSION" --version "$TAG" \
+            --mpf-version "$("$GITHUB_WORKSPACE/scripts/image-name.sh" --mpf-version)" \
+            ${PYTHON_VERSION:+--python-version "$PYTHON_VERSION"} \
             --godot-version "$("$GITHUB_WORKSPACE/scripts/image-name.sh" --godot-version)" \
             --url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$BASE.img.xz" \
             --release-date "$(date -u +%Y-%m-%d)" \
@@ -118,7 +122,7 @@ jobs:
           df -h /
 
       # Always, not just for test builds: the release job below collects these.
-      # Per-leg name (model + MPF line) so the four legs don't collide.
+      # Per-leg name (model + MPF line) so the eight legs don't collide.
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:

@@ -38,6 +38,8 @@ if ! MPF_LINE="$("$NAMER" --mpf-line)"; then
   exit 2
 fi
 RPI_CONFIG_FILE="$("$NAMER" --config)"
+MPF_FULL="$("$NAMER" --mpf-version)"
+MPF_PYTHON="$("$NAMER" --python-version)"
 
 # The upstream rpi-image-gen device layer for this model (pi5 -> rpi5). Passed
 # as a variable override rather than edited into pinball.yaml, so one config
@@ -48,8 +50,8 @@ RPI_DEVICE_LAYER="$("$NAMER" --device-layer "${PI_MODEL}")"
 # (.github/workflows/build-image.yml) can pin an exact release filename, while
 # a plain local `./build.sh` gets the same self-describing name derived from
 # the model, the MPF release line and `git describe`:
-#   pinball/deploy/pinbos-mpf57-rpi5-v0.3.0.img
-#   pinball/deploy/pinbos-mpf80-rpi4-v0.3.0.img   (./build.sh pi4 0.80)
+#   pinball/deploy/pinbos-mpf0.57.6-rpi5-v0.8.0.img
+#   pinball/deploy/pinbos-mpf0.81.0-rpi4-v0.8.0.img   (./build.sh pi4 0.81)
 RPI_IMAGE_OUT_DIR="${RPI_IMAGE_OUT_DIR:-./${RPI_CUSTOMIZATIONS_DIR}/deploy}"
 RPI_IMAGE_OUT_NAME="${RPI_IMAGE_OUT_NAME:-$("$NAMER" "${PI_MODEL}").img}"
 OUT="${RPI_IMAGE_OUT_DIR}/${RPI_IMAGE_OUT_NAME}"
@@ -72,7 +74,7 @@ ensure_cleanup() {
 # Set the trap to execute the ensure_cleanup function on EXIT
 trap ensure_cleanup EXIT
 
-echo "🎯 Target: ${PI_MODEL} (device layer ${RPI_DEVICE_LAYER}), MPF ${MPF_LINE} (${RPI_CONFIG_FILE}) -> ${RPI_IMAGE_OUT_NAME}"
+echo "🎯 Target: ${PI_MODEL} (device layer ${RPI_DEVICE_LAYER}), MPF ${MPF_FULL} on Python ${MPF_PYTHON:-3.11 (Debian)} (${RPI_CONFIG_FILE}) -> ${RPI_IMAGE_OUT_NAME}"
 echo "🔨 Building Docker image with rpi-image-gen to create ${RPI_BUILD_SVC}..."
 docker compose build ${RPI_BUILD_SVC}
 
@@ -135,4 +137,4 @@ BUILT_IMG=$(printf '%s\n' "$BUILT_IMGS" | head -n 1)
 mkdir -p "${RPI_IMAGE_OUT_DIR}"
 docker cp "${CID}:${BUILT_IMG}" "${OUT}"
 
-echo "🚀 Completed ${PI_MODEL} / MPF ${MPF_LINE} build -> ${OUT}"
+echo "🚀 Completed ${PI_MODEL} / MPF ${MPF_FULL} build -> ${OUT}"

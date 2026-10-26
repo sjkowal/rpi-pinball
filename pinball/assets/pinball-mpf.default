@@ -15,8 +15,8 @@
 MPF_PROJECT_DIR=
 
 # What to run:
-#   auto  - `gmc-run` on MPF 0.80 images (import Godot assets, then
-#           `cage -- mpf both`), `mpf both` on 0.57 images
+#   auto  - `gmc-run` on MPF 0.80/0.81 images (import Godot assets,
+#           then `cage -- mpf both`), `mpf both` on 0.57/0.58 images
 #   both  - `mpf both`  (MPF + media controller)
 #   game  - `mpf game`  (MPF core only, no media controller)
 #   gmc   - `gmc-run`
@@ -25,7 +25,7 @@ MPF_MODE=auto
 # -t  no ASCII text UI (a service has no terminal; the flag disables it)
 # -P  production mode: waits for hardware on start, exits if startup fails
 #     (systemd restarts it). It loads a prebuilt config bundle
-#     (mpf_config.bundle, plus mpf_mc_config.bundle on 0.57) instead of the
+#     (mpf_config.bundle, plus mpf_mc_config.bundle on 0.57/0.58) instead of the
 #     YAML; pinball-mpf-launch builds it if missing. After changing the MPF
 #     config, delete them: rm <MPF project folder>/*.bundle
 # -A  don't write config cache files
@@ -36,11 +36,11 @@ MPF_ARGS="-t -P -A"
 WAIT_FOR_DEVICES=""
 DEVICE_TIMEOUT=30
 
-# MPF 0.80: the mouse pointer is hidden in the cage session. Set to 1 to
+# MPF 0.80/0.81: the mouse pointer is hidden in the cage session. Set to 1 to
 # show it.
 #GMC_SHOW_CURSOR=1
 
-# Audio for MPF-MC (SDL), MPF 0.57. Card name from `aplay -l`. Leave unset to
+# Audio for MPF-MC (SDL), MPF 0.57/0.58. Card name from `aplay -l`. Leave unset to
 # use the ALSA default device.
 #SDL_AUDIODRIVER=alsa
 #AUDIODEV=plughw:CARD=Device

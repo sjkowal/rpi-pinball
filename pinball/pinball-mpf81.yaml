@@ -1,0 +1,30 @@
+# MPF 0.81 line: MPF 0.81.0 + the Godot Media Controller (GMC) runtime --
+# Godot on $PATH and a cage Wayland session (see pinball-gmc.yaml). GMC
+# itself is an addon inside each game project, so it is not shipped.
+# Everything shared by every MPF line lives in pinball.yaml, included below;
+# this file only says what makes the line different. build.sh picks it via
+# `scripts/image-name.sh --config 0.81`.
+#
+# Python: 3.14, the prebuilt python-build-standalone release (Debian
+# bookworm only ships 3.11) -- see python_version below and pinball-mpf.yaml.
+# 0.81.0 is the feature release after 0.80.1 (released alongside 0.58.0).
+include:
+  file: pinball.yaml
+
+mpf:
+  # THE single source of truth for this line's MPF version, as an exact
+  # release (major.minor.patch): the pinball-mpf layer pip-installs
+  # mpf==<version> and checks the venv actually has it, and
+  # scripts/image-name.sh greps it for the image filename
+  # (pinbos-mpf<version>-...) and refuses to name an image whose line
+  # (major.minor) disagrees. Keep it on its own line, quoted.
+  version: "0.81.0"
+  # Python for the MPF venv: python-build-standalone's install_only build
+  # for aarch64, checksum-checked against that release's SHA256SUMS. Both
+  # must match a published asset:
+  # https://github.com/astral-sh/python-build-standalone/releases/tag/<build>
+  python_version: "3.14.10"
+  python_build: "20261026"
+
+layer:
+  mc: pinball-gmc

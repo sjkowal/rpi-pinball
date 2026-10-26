@@ -1,17 +1,22 @@
-# MPF 0.57 line: MPF core + the legacy Kivy/SDL2 media controller (mpf-mc).
+# MPF 0.57 line: MPF 0.57.6 + the legacy Kivy/SDL2 media controller (mpf-mc).
 # Everything shared by every MPF line -- read-only OS, preseed, networking,
 # P-ROC, partition layout -- lives in pinball.yaml, included below; this
 # file only says what makes the line different. build.sh picks it via
 # `scripts/image-name.sh --config 0.57`.
+#
+# Python: Debian's own python3 (3.11). mpf-mc needs Python < 3.12 (it pins
+# Kivy 2.2.1), so the mpf-mc lines can't move to a newer Python.
 include:
   file: pinball.yaml
 
 mpf:
-  # THE single source of truth for this line's MPF version: the pinball-mpf
-  # layer pip-installs mpf~=<version>.0 from it, and scripts/image-name.sh
-  # greps it (and refuses to name an image if it disagrees with the line
-  # being built). Keep it on its own line, quoted.
-  version: "0.57"
+  # THE single source of truth for this line's MPF version, as an exact
+  # release (major.minor.patch): the pinball-mpf layer pip-installs
+  # mpf==<version> and checks the venv actually has it, and
+  # scripts/image-name.sh greps it for the image filename
+  # (pinbos-mpf<version>-...) and refuses to name an image whose line
+  # (major.minor) disagrees. Keep it on its own line, quoted.
+  version: "0.57.6"
 
 layer:
   mc: pinball-mpf-mc
