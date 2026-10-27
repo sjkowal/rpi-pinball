@@ -2,7 +2,7 @@
 Description=Mission Pinball Framework
 Documentation=file:///etc/default/pinball-mpf
 After=sound.target systemd-user-sessions.service
-# MPF 0.80's cage session needs seatd for the display; harmless elsewhere
+# MPF 0.80/0.81's cage session needs seatd for the display; harmless elsewhere
 # (Wants= of a unit that isn't installed is ignored).
 Wants=seatd.service
 After=seatd.service
@@ -16,7 +16,7 @@ User=1000
 Group=1000
 EnvironmentFile=-/etc/default/pinball-mpf
 ExecStart=/usr/local/bin/pinball-mpf-launch
-# /run/mpf: XDG_RUNTIME_DIR for cage on MPF 0.80 images.
+# /run/mpf: XDG_RUNTIME_DIR for cage on MPF 0.80/0.81 images.
 RuntimeDirectory=mpf
 RuntimeDirectoryMode=0700
 Restart=always

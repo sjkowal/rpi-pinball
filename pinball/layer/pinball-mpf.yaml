@@ -4,26 +4,49 @@
 # X-Env-Layer-Desc: Mission Pinball Framework (MPF) core installed into a
 #  dedicated venv at /opt/mpf/venv. Media-controller-agnostic: the media
 #  controller comes from a separate layer chosen by the MPF line's config
-#  (pinball-mpf-mc for 0.57, pinball-gmc for 0.80). No MPF project folder (game
+#  (pinball-mpf-mc for 0.57/0.58, pinball-gmc for 0.80/0.81). No MPF project folder (game
 #  code) baked in, and MPF is not started automatically -- ssh in and run
 #  `mpf both <machine_path>` manually once an MPF project folder is added.
-# X-Env-Layer-Version: 2.0.0
+#
+#  Python: Debian's python3 (3.11) by default. A line can set
+#  python_version + python_build to use a newer Python from
+#  python-build-standalone instead (prebuilt for aarch64; bookworm has
+#  nothing newer than 3.11) -- downloaded and checked against the release's
+#  SHA256SUMS on the build host, unpacked to /opt/python/<version>, and used
+#  to create the venv. That Python was compiled with clang, which the image
+#  doesn't have, so pip builds C extensions with CC=gcc.
+# X-Env-Layer-Version: 3.0.0
 # X-Env-Layer-Requires: device-user-admin
 #
 # X-Env-VarPrefix: mpf
 #
 # X-Env-Var-version:
-# X-Env-Var-version-Desc: MPF release line to install, as a pip
-#  compatible-release pin (mpf~=<version>.0), so the exact patch floats within
-#  the series. Deliberately has no default: it is set by `mpf.version` in the
-#  per-line config (pinball/pinball-mpf<NN>.yaml), which is the single source
-#  of truth -- scripts/image-name.sh reads the same line to build the
-#  mpf<NN> token in artifact filenames, so a released file can never claim
-#  an MPF version the image does not have. Building the shared base
+# X-Env-Var-version-Desc: Exact MPF release to install (mpf==<version>,
+#  e.g. 0.81.0). Deliberately has no default: it is set by `mpf.version` in
+#  the per-line config (pinball/pinball-mpf<NN>.yaml), which is the single
+#  source of truth -- scripts/image-name.sh reads the same line for the
+#  mpf<version> part of artifact filenames, and the build fails unless the
+#  venv really contains this version, so a released file can never claim an
+#  MPF version the image does not have. Building the shared base
 #  pinball.yaml directly therefore fails here, by design.
 # X-Env-Var-version-Required: y
-# X-Env-Var-version-Valid: regex:^[0-9]+\.[0-9]+$
+# X-Env-Var-version-Valid: regex:^[0-9]+\.[0-9]+\.[0-9]+$
 # X-Env-Var-version-Set: n
+#
+# X-Env-Var-python_version:
+# X-Env-Var-python_version-Desc: Optional. CPython version from
+#  python-build-standalone for the MPF venv (e.g. 3.14.10). Unset: Debian's
+#  python3.
+# X-Env-Var-python_version-Required: n
+# X-Env-Var-python_version-Valid: regex:^3\.[0-9]+\.[0-9]+$
+# X-Env-Var-python_version-Set: n
+#
+# X-Env-Var-python_build:
+# X-Env-Var-python_build-Desc: python-build-standalone release tag that
+#  holds python_version (e.g. 20261026). Required with python_version.
+# X-Env-Var-python_build-Required: n
+# X-Env-Var-python_build-Valid: regex:^[0-9]{8}$
+# X-Env-Var-python_build-Set: n
 # METAEND
 ---
 mmdebstrap:
@@ -44,14 +67,35 @@ mmdebstrap:
     - libftdi1-2
     - libftdi1-dev
   customize-hooks:
-    - chroot $1 python3 -m venv /opt/mpf/venv
+    - |-
+      # Optional newer Python (see the header). Downloaded on the build host,
+      # where curl, sha256sum and tar already exist, straight into the rootfs.
+      set -eu
+      if [ -n "${IGconf_mpf_python_version:-}" ]; then
+        : "${IGconf_mpf_python_build:?mpf.python_build is required with mpf.python_version}"
+        asset="cpython-${IGconf_mpf_python_version}+${IGconf_mpf_python_build}-aarch64-unknown-linux-gnu-install_only.tar.gz"
+        base="https://github.com/astral-sh/python-build-standalone/releases/download/${IGconf_mpf_python_build}"
+        tmp="$(mktemp -d)"
+        curl -fsSL -o "$tmp/$asset" "$base/$(printf '%s' "$asset" | sed 's/+/%2B/')"
+        curl -fsSL -o "$tmp/SHA256SUMS" "$base/SHA256SUMS"
+        grep "  ${asset}\$" "$tmp/SHA256SUMS" > "$tmp/expected" || { echo "no checksum for $asset" >&2; exit 1; }
+        (cd "$tmp" && sha256sum -c expected)
+        dest="$1/opt/python/${IGconf_mpf_python_version}"
+        rm -rf "$dest"; mkdir -p "$dest"
+        tar -xzf "$tmp/$asset" -C "$dest" --strip-components=1
+        rm -rf "$tmp"
+        chroot $1 "/opt/python/${IGconf_mpf_python_version}/bin/python3" -m venv /opt/mpf/venv
+      else
+        chroot $1 python3 -m venv /opt/mpf/venv
+      fi
     - chroot $1 /opt/mpf/venv/bin/pip install --upgrade pip
     - |-
-      # Pinned to a release line, not an exact patch (see
-      # docs/rpi-image-gen-notes.md). MPF core only -- the media controller
-      # (mpf-mc for 0.57, Godot/GMC for 0.80) is its own layer. No
-      # mpf-monitor (needs PyQt6, known Pi compatibility issues).
-      chroot $1 /opt/mpf/venv/bin/pip install "mpf~=$IGconf_mpf_version.0"
+      # Pinned to an exact release, which the image filename states. MPF
+      # core only -- the media controller (mpf-mc for 0.57/0.58, Godot/GMC
+      # for 0.80/0.81) is its own layer. No mpf-monitor (needs PyQt6, known
+      # Pi compatibility issues).
+      # CC=gcc: a python-build-standalone Python names clang as its compiler.
+      chroot $1 env CC=gcc CXX=g++ /opt/mpf/venv/bin/pip install "mpf==$IGconf_mpf_version"
     - |-
       # Work around a real upstream bug in mpf itself (reproduced and
       # verified independently of this image, on a clean
@@ -60,7 +104,7 @@ mmdebstrap:
       # DistributionNotFound for "ruamel.yaml.clib>=0.2.7" even though pip
       # installed it correctly. Duplicate its dist-info dir under its dotted
       # name — purely additive, doesn't touch any installed files.
-      # Still needed on 0.80: its CLI loader still imports pkg_resources and
+      # Still needed on 0.80/0.81: its CLI loader still imports pkg_resources and
       # it still pins setuptools~=72.2. Skipped (not failed) if a future
       # ruamel.yaml.clib stops shipping the underscored dist-info; the
       # `mpf --help` check below is what decides whether the CLI works.
@@ -76,6 +120,19 @@ mmdebstrap:
       # Fail the build, not the first boot, if the CLI cannot load. Run in
       # a clean env: the chroot has no $HOME for the build user.
       chroot $1 env HOME=/root /opt/mpf/venv/bin/mpf --help > /dev/null
+    - |-
+      # The image filename states the MPF (and Python) version: make sure
+      # the venv really has them.
+      chroot $1 /opt/mpf/venv/bin/python - "$IGconf_mpf_version" "${IGconf_mpf_python_version:-}" <<'EOPY'
+      import sys, platform
+      import mpf._version as v
+      want_mpf, want_py = sys.argv[1], sys.argv[2]
+      print(f"MPF {v.__version__} on Python {platform.python_version()}")
+      if v.__version__ != want_mpf:
+          sys.exit(f"venv has MPF {v.__version__}, expected {want_mpf}")
+      if want_py and platform.python_version() != want_py:
+          sys.exit(f"venv has Python {platform.python_version()}, expected {want_py}")
+      EOPY
     - |-
       # Let the login user manage the venv later (add packages for their
       # MPF project folder, etc.) without needing sudo.

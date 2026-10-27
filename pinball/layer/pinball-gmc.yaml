@@ -2,11 +2,11 @@
 # X-Env-Layer-Name: pinball-gmc
 # X-Env-Layer-Category: app-misc
 # X-Env-Layer-Desc: Runtime for the Godot Media Controller (GMC) used by the
-#  MPF 0.80 line: the official Godot 4 linux.arm64 binary on $PATH as
+#  MPF 0.80 and 0.81 lines: the official Godot 4 linux.arm64 binary on $PATH as
 #  `godot`, plus a Wayland kiosk compositor (cage) and the GPU/audio stack
 #  it needs. Selected by pinball/pinball-mpf80.yaml.
 #
-#  Why this shape: MPF 0.80's `mpf both` (mpf/commands/both.py) spawns
+#  Why this shape: MPF 0.80+'s `mpf both` (mpf/commands/both.py) spawns
 #  `shutil.which("godot")` against the MPF project folder's project.godot, so a
 #  `godot` on $PATH is all MPF needs -- no gmc.cfg edits. GMC itself is a
 #  Godot addon that lives in each game project (addons/mpf-gmc), so it is
@@ -43,7 +43,7 @@
 # X-Env-Var-godot_version: 4.7.2
 # X-Env-Var-godot_version-Desc: Exact Godot release to install (the
 #  <version>-stable tag on github.com/godotengine/godot). GMC 1.0.0, the
-#  version MPF 0.80 pins, needs 4.5 or later. Game projects should be edited
+#  version MPF 0.80.1 and 0.81.0 pin, needs 4.5 or later. Game projects should be edited
 #  with the same minor version. The download is checked against that
 #  release's own SHA512-SUMS.txt. scripts/image-name.sh --godot-version reads
 #  this line (for the Imager description), so keep it on one line.

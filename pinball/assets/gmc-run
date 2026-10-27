@@ -1,5 +1,5 @@
 #!/bin/bash
-# gmc-run -- run an MPF 0.80 machine with its Godot Media Controller (GMC)
+# gmc-run -- run an MPF 0.80/0.81 machine with its Godot Media Controller (GMC)
 # from source: import the Godot project's assets, then `mpf both` in cage.
 #
 #   gmc-run                       # MPF project folder = current directory
@@ -17,7 +17,7 @@
 # running project does not notice them. When nothing changed it takes a few
 # seconds.
 #
-# Installed by the pinball-gmc layer (MPF 0.80 images only).
+# Installed by the pinball-gmc layer (MPF 0.80/0.81 images only).
 set -euo pipefail
 
 die() { echo "gmc-run: $*" >&2; exit 1; }

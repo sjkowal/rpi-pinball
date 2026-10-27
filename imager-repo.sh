@@ -16,9 +16,9 @@
 #
 #   ./imager-repo.sh                 # newest build of each model x MPF line
 #   ./imager-repo.sh pi4             # newest pi4 build of each MPF line
-#   ./imager-repo.sh 0.80            # newest MPF 0.80 build of each model
-#   ./imager-repo.sh pi4 0.80        # newest pi4 MPF 0.80 build only
-#   ./imager-repo.sh pinball/deploy/pinbos-mpf57-rpi4-v0.3.0.img
+#   ./imager-repo.sh 0.81            # newest MPF 0.81 build of each model
+#   ./imager-repo.sh pi4 0.81        # newest pi4 MPF 0.81 build only
+#   ./imager-repo.sh pinball/deploy/pinbos-mpf0.57.6-rpi4-v0.8.0.img
 #
 # Thin wrapper: the manifest shape itself lives in imager/gen-os-list.py,
 # shared with the hosted repo published by CI (see README "Releases").
@@ -57,7 +57,7 @@ is_mpf_line() {
   return 1
 }
 
-# Images are named pinbos-mpf<NN>-rpi<N>-<version>.img, so the model and the
+# Images are named pinbos-mpf<version>-rpi<N>-<release>.img (pinbos-mpf<NN>-... before v0.8.0), so the model and the
 # MPF line are both in the filename -- no guessing what an image holds.
 model_of() {
   local base n
@@ -68,21 +68,36 @@ model_of() {
   echo "pi$n"
 }
 
-# 0.80 -> 80, matching image-name.sh's mpf<NN> token.
+# 0.80 -> 80: the mpf<NN> token in image names before v0.8.0.
 mpf_digits() { printf '%s' "${1#0.}" | tr -d '.'; }
 
+# The exact MPF version in an image name (pinbos-mpf0.81.0-rpi5-...), or
+# nothing for an older pinbos-mpf81- name.
+mpf_full_of() {
+  basename "$1" | sed -n 's/.*-mpf\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)-.*/\1/p'
+}
+
+# The MPF line (major.minor), from either naming style.
 mpf_of() {
-  local base n
+  local base full n
   base="$(basename "$1")"
-  n="$(printf '%s\n' "$base" | sed -n 's/.*-mpf\([0-9][0-9]*\)-.*/\1/p')"
-  [ -n "$n" ] || return 1
-  is_mpf_line "0.$n" || return 1
-  echo "0.$n"
+  full="$(mpf_full_of "$1")"
+  if [ -n "$full" ]; then
+    n="${full%.*}"
+  else
+    n="$(printf '%s\n' "$base" | sed -n 's/.*-mpf\([0-9][0-9]*\)-.*/\1/p')"
+    [ -n "$n" ] || return 1
+    n="0.$n"
+  fi
+  is_mpf_line "$n" || return 1
+  echo "$n"
 }
 
 newest_for() {
+  # Both naming styles: pinbos-mpf0.81.<patch>-rpi5-* and pinbos-mpf81-rpi5-*.
   # shellcheck disable=SC2012  # -t ordering is the point; names have no newlines
-  ls -t "$DEPLOY_DIR"/*-mpf"$(mpf_digits "$2")"-rpi"${1#pi}"-*.img 2>/dev/null | head -n1
+  ls -t "$DEPLOY_DIR"/*-mpf"$2".[0-9]*-rpi"${1#pi}"-*.img \
+        "$DEPLOY_DIR"/*-mpf"$(mpf_digits "$2")"-rpi"${1#pi}"-*.img 2>/dev/null | head -n1
 }
 
 # Resolve the list of images to cover: a path, or model/line filters.
@@ -111,7 +126,7 @@ else
       fi
     done
   done
-  [ -n "$IMAGES" ] || die "No matching images in $DEPLOY_DIR (expected pinbos-mpf<NN>-rpi<N>-*.img for models: $WANT_MODELS; MPF lines: $WANT_LINES). Build one with ./build.sh [model] [mpf line]"
+  [ -n "$IMAGES" ] || die "No matching images in $DEPLOY_DIR (expected pinbos-mpf<version>-rpi<N>-*.img for models: $WANT_MODELS; MPF lines: $WANT_LINES). Build one with ./build.sh [model] [mpf line]"
 fi
 
 # One entry document per image, then merge them into a single local repo.
@@ -119,14 +134,17 @@ COUNT=0
 MANIFESTS=""
 while IFS= read -r img; do
   [ -n "$img" ] || continue
-  model="$(model_of "$img")" || die "Cannot tell which Pi model $(basename "$img") is for -- expected a pinbos-mpf<NN>-rpi<N>-<version>.img name. Pass a supported model ($MODELS) to use the newest build for that board instead."
-  line="$(mpf_of "$img")" || die "Cannot tell which MPF line $(basename "$img") holds -- expected a pinbos-mpf<NN>-rpi<N>-<version>.img name with NN one of: $(for l in $MPF_LINES; do mpf_digits "$l"; printf ' '; done)"
+  model="$(model_of "$img")" || die "Cannot tell which Pi model $(basename "$img") is for -- expected a pinbos-mpf<version>-rpi<N>-<release>.img name. Pass a supported model ($MODELS) to use the newest build for that board instead."
+  line="$(mpf_of "$img")" || die "Cannot tell which MPF line $(basename "$img") holds -- expected a pinbos-mpf<version>-rpi<N>-<release>.img name, with an MPF version in one of: $MPF_LINES"
+  full="$(mpf_full_of "$img")"
   manifest="$TMP/$model-$line.json"
-  # gen-os-list.py only shows the Godot pin for lines that ship Godot.
-  python3 "$GEN" local --img "$img" --model "$model" --mpf "$line" --godot-version "$GODOT_VERSION" -o "$manifest"
+  # gen-os-list.py only shows the Godot pin for lines that ship Godot. No
+  # --python-version: the filename doesn't record it, and an older image in
+  # deploy/ may predate the current config.
+  python3 "$GEN" local --img "$img" --model "$model" --mpf "$line" ${full:+--mpf-version "$full"} --godot-version "$GODOT_VERSION" -o "$manifest"
   MANIFESTS="$MANIFESTS $manifest"
   COUNT=$((COUNT + 1))
-  echo "Covers $(basename "$img") ($model, MPF $line)"
+  echo "Covers $(basename "$img") ($model, MPF ${full:-$line})"
 done <<< "$IMAGES"
 
 # shellcheck disable=SC2086  # deliberate word splitting of the manifest list

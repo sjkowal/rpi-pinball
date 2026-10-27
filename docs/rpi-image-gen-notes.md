@@ -817,3 +817,38 @@ Two things showed up in the build that tested it:
 - **Replaces a stale comment block** directly above `BOOT_ORDER`, but only one that mentions `BOOT_ORDER`, such as the stock "SD -> NVMe -> USB -> Network", with one describing the new value.
 - **Tests,** using the CM5's real config: the stale comment is replaced; an unrelated comment is kept; a full 1 MB boot partition is refused with no backup made; a roomy 16 MB one applies.
 
+
+## Four MPF versions (0.57.6, 0.58.0, 0.80.1, 0.81.0), exact pins, Python 3.14
+
+Added 2026-10-26. MPF 0.58.0 and 0.81.0 were both released that day. The 0.81.0 release notes say: "v0.81.0 and v0.58.0 represent the next feature releases after v0.80.1 and v0.57.6". So 0.58 continues the mpf-mc family and 0.81 the GMC family. Each release now builds 8 images: {pi4, pi5} × {0.57, 0.58, 0.80, 0.81}.
+
+### What PyPI and the source say
+- **MPF's supported Python:** `mpf` 0.57.6, 0.58.0, 0.80.1 and 0.81.0 all declare `requires_python <3.15`. 0.58 and 0.81 need ≥ 3.10.
+- **mpf-mc:**
+  - Its newest release is **0.57.1**. There is no 0.58, and its `dev` branch is unchanged on this point.
+  - It declares `requires-python ">=3.8, <3.12"` and pins `kivy == 2.2.1`.
+  - It requires MPF 0.57.0 or newer (`__mpf_version_required__ = '0.57.0'`), so it serves 0.58.0 too.
+  - Consequence: **the mpf-mc lines can't run on Python 3.14**, and stay on bookworm's 3.11.
+- **GMC:** 0.80.1 and 0.81.0 both have `__gmc_version__ = '1.0.0'`, so Godot 4.7.2 is unchanged.
+- **The Python 3.14 fix in 0.81.0** (PR #2018, `ast.Str` → `ast.Constant`) is in `mpf/parsers/event_reference_parser.py`. In 0.80.1 nothing else in MPF calls that file: it's a developer tool for generating the event reference, not part of running a game.
+
+### Python 3.14 on bookworm
+Bookworm ships 3.11 only. The GMC lines use python-build-standalone's `cpython-3.14.10+20261026-aarch64-unknown-linux-gnu-install_only.tar.gz`. `pinball-mpf` downloads it on the build host, checks it against the release's `SHA256SUMS`, unpacks it to `/opt/python/3.14.10`, and builds the venv from it. Lines without `mpf.python_version` keep Debian's `python3`.
+
+It was done inside `pinball-mpf` rather than as a separate layer for ordering reasons. A layer added by a per-line config lands after the shared layers in the pipeline, so it would run after the venv already existed.
+
+**Gotcha:** this Python's `sysconfig` names `clang` as its C compiler, and the image has no `clang`. `pip` failed building `psutil==5.9.8` with `error: [Errno 2] No such file or directory: 'clang'`. Every pip install that builds C code therefore sets `CC=gcc CXX=g++`: MPF, mpf-mc, and `pypinproc` in `pinball-proc`. With that, `psutil` 5.9.8 (pinned by MPF) builds fine on 3.14.
+
+Tested in a bookworm container with that Python:
+- **MPF 0.81.0 and 0.80.1** both install, and `mpf --help` works.
+- **Both run games:** `mpf game -t -x -A` from YAML and `mpf game -P -t -x -A` from a production bundle, with a config that includes a conditional event (`ball_started{ball==1}`), with no errors.
+- **P-ROC:** `libpinproc` (dev branch) + `pypinproc` build, and `import pinproc` works.
+
+### Exact pins and filenames
+- **Exact pins:** `mpf.version` is now an exact release, installed with `mpf==`. It used to float within a line (`mpf~=<line>.0`), but the filename now states the patch version. mpf-mc is pinned with `mpf-mc==0.57.1`, and mpf is named again in the same `pip install`, so mpf-mc's `mpf >= 0.57.0` can't move it.
+- **A build-time check** fails the build unless `mpf._version.__version__`, and `platform.python_version()` where pinned, match the config. It runs after the mpf-mc install too.
+- **Filenames:** `pinbos-mpf<exact version>-rpi<N>-<release>`, e.g. `pinbos-mpf0.81.0-rpi5-v0.8.0`. `scripts/image-name.sh` reads the version from the line's config and refuses one without a patch number, or from another line. The config files keep their `mpf<NN>` names.
+- **Imager:**
+  - `gen-os-list.py` takes `--mpf-version` (shown in the entry name) and `--python-version` (shown in the description), and records `mpf_version` in each entry.
+  - Its fallback that reads the line from a release URL understands both `-mpf0.81.0-` and the older `-mpf81-`.
+  - `imager-repo.sh` finds both naming styles in `pinball/deploy/`. It doesn't pass a Python version for local images, because the filename doesn't record it and an older image may predate the config.

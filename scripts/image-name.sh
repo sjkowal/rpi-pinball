@@ -5,26 +5,33 @@
 # call this, so the naming rule, the model list and the MPF line list exist
 # exactly once.
 #
-#   pinbos-mpf<MPF>-rpi<N>-<VERSION>
+#   pinbos-mpf<MPF version>-rpi<N>-<VERSION>     e.g. pinbos-mpf0.81.0-rpi5-v0.8.0
+#
+# <MPF version> is the exact release the image contains (major.minor.patch),
+# read from the line's config; the line (major.minor, e.g. 0.81) selects that
+# config.
 #
 # The basename only, with no extension: callers append .img, .img.xz,
 # .img.xz.sha256 or .manifest.json as needed.
 #
 # Usage
 #   scripts/image-name.sh --models                 -> pi4 pi5
-#   scripts/image-name.sh --mpf-lines              -> 0.57 0.80
-#   scripts/image-name.sh --mpf-line [0.80]         -> 0.80 (validated; default line if omitted)
+#   scripts/image-name.sh --mpf-lines              -> 0.57 0.58 0.80 0.81
+#   scripts/image-name.sh --mpf-line [0.81]         -> 0.81 (validated; default line if omitted)
+#   scripts/image-name.sh --mpf-version [0.81]      -> 0.81.0 (exact version in the line's config)
+#   scripts/image-name.sh --python-version [0.81]   -> 3.14.10 (empty: Debian's python3)
 #   scripts/image-name.sh --device-layer pi4        -> rpi4
-#   scripts/image-name.sh --config [0.80]           -> pinball-mpf80.yaml
+#   scripts/image-name.sh --config [0.81]           -> pinball-mpf81.yaml
 #   scripts/image-name.sh --godot-version           -> 4.7.2
-#   scripts/image-name.sh pi5                       -> pinbos-mpf57-rpi5-v0.3.0-3-gabc1234
-#   scripts/image-name.sh pi5 v0.3.0                -> pinbos-mpf57-rpi5-v0.3.0
-#   MPF_VERSION=0.80 scripts/image-name.sh pi4 v0.4.0 -> pinbos-mpf80-rpi4-v0.4.0
+#   scripts/image-name.sh pi5                       -> pinbos-mpf0.57.6-rpi5-v0.8.0-3-gabc1234
+#   scripts/image-name.sh pi5 v0.8.0                -> pinbos-mpf0.57.6-rpi5-v0.8.0
+#   MPF_VERSION=0.81 scripts/image-name.sh pi4 v0.8.0 -> pinbos-mpf0.81.0-rpi4-v0.8.0
 #
 # Environment
-#   MPF_VERSION     which MPF release line (default $DEFAULT_MPF). Selects the
-#                   per-line config pinball/pinball-mpf<NN>.yaml, whose
-#                   `mpf.version` must agree -- checked, not assumed
+#   MPF_VERSION     which MPF release line, major.minor (default
+#                   $DEFAULT_MPF). Selects the per-line config
+#                   pinball/pinball-mpf<NN>.yaml, whose exact `mpf.version`
+#                   must belong to that line -- checked, not assumed
 #   IMAGE_VERSION   override the version component (CI passes it positionally
 #                   instead, which wins over this)
 #
@@ -42,7 +49,7 @@ MODELS="pi4 pi5"
 # A LINE: that config file, this line, the MPF_LINES table in
 # imager/gen-os-list.py, and the CI matrix. The default is what a bare
 # ./build.sh builds.
-MPF_LINES="0.57 0.80"
+MPF_LINES="0.57 0.58 0.80 0.81"
 DEFAULT_MPF="0.57"
 
 PRODUCT="pinbos"
@@ -58,6 +65,8 @@ usage() {
   echo "       $0 --models" >&2
   echo "       $0 --mpf-lines" >&2
   echo "       $0 --mpf-line [mpf line]" >&2
+  echo "       $0 --mpf-version [mpf line]" >&2
+  echo "       $0 --python-version [mpf line]" >&2
   echo "       $0 --device-layer <model>" >&2
   echo "       $0 --config [mpf line]" >&2
   echo "       $0 --godot-version" >&2
@@ -94,27 +103,61 @@ requested_mpf() {
 # Per-line config basename, relative to pinball/: 0.80 -> pinball-mpf80.yaml.
 config_for() { echo "pinball-$(mpf_token "$1").yaml"; }
 
-# MPF release line, checked against its config. The config's `mpf.version`
-# is the single source of truth -- it is what the pinball-mpf layer's pip
-# install hook uses -- so refuse to emit a name if the two disagree rather
-# than ship a file whose name claims an MPF version the image does not have.
-mpf_version() {
+# A value from the top-level `mpf:` section of a line's config, quotes and
+# trailing comments stripped; empty if absent.
+cfg_mpf_value() {
+  awk -v key="$2" '
+    /^[^[:space:]#]/ { in_mpf = ($0 ~ /^mpf:/) }
+    in_mpf && $0 ~ "^[[:space:]]+" key ":" {
+      sub("^[[:space:]]+" key ":[[:space:]]*", ""); gsub(/["\047]/, ""); sub(/[[:space:]]*(#.*)?$/, "")
+      print; exit
+    }' "$1"
+}
+
+# The line's config file, checked: it must exist and pin an exact MPF
+# version within that line (0.81 -> 0.81.<patch>). The config's `mpf.version`
+# is the single source of truth -- the pinball-mpf layer installs exactly it
+# and fails the build if the venv disagrees -- so refuse to emit a name
+# rather than ship a file whose name claims an MPF version the image does
+# not have.
+line_config() {
   local want cfg have
   # Explicit `|| exit`: this runs inside the caller's $(...), where bash
   # (no inherit_errexit before 4.4, and macOS ships 3.2) ignores set -e.
   want="$(requested_mpf "${1:-}")" || exit 1
   cfg="$CONFIG_DIR/$(config_for "$want")"
   [ -f "$cfg" ] || die "MPF line $want has no config file $cfg"
-  # The quoted `version:` line inside the top-level `mpf:` section.
-  have=$(awk '
-    /^[^[:space:]#]/ { in_mpf = ($0 ~ /^mpf:/) }
-    in_mpf && /^[[:space:]]+version:/ {
-      sub(/^[[:space:]]+version:[[:space:]]*/, ""); gsub(/["\047]/, ""); sub(/[[:space:]]*(#.*)?$/, "")
-      print; exit
-    }' "$cfg")
+  have="$(cfg_mpf_value "$cfg" version)"
   [ -n "$have" ] || die "no 'version:' under 'mpf:' in $cfg"
-  [ "$have" = "$want" ] || die "$cfg sets mpf.version '$have', but MPF line '$want' was requested"
-  echo "$have"
+  printf '%s\n' "$have" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+    || die "$cfg sets mpf.version '$have'; expected an exact major.minor.patch release"
+  case "$have" in
+    "$want".*) ;;
+    *) die "$cfg sets mpf.version '$have', which isn't in MPF line '$want'" ;;
+  esac
+  echo "$cfg"
+}
+
+# The validated line (major.minor).
+mpf_line() {
+  local cfg
+  cfg="$(line_config "${1:-}")" || exit 1
+  requested_mpf "${1:-}"
+}
+
+# The exact MPF version the line's image contains.
+mpf_full_version() {
+  local cfg
+  cfg="$(line_config "${1:-}")" || exit 1
+  cfg_mpf_value "$cfg" version
+}
+
+# The line's Python (python-build-standalone) version; empty for Debian's
+# python3.
+python_version() {
+  local cfg
+  cfg="$(line_config "${1:-}")" || exit 1
+  cfg_mpf_value "$cfg" python_version
 }
 
 # Pinned Godot version for the GMC line, from the pinball-gmc layer metadata
@@ -127,10 +170,12 @@ godot_version() {
   echo "$v"
 }
 
-# 0.57 -> mpf57, 0.60 -> mpf60. Strips a leading "0." then removes any
-# remaining dots. Note an eventual MPF 1.0 would render as mpf10, colliding
-# with a hypothetical 0.10 -- not a real concern, MPF's 0.x line is long past
-# 0.10, but revisit this if MPF ever ships 1.x.
+# Config-file token for a line: 0.57 -> mpf57, 0.81 -> mpf81 (so
+# pinball-mpf81.yaml). Strips a leading "0." then removes any remaining
+# dots. Note an eventual MPF 1.0 would render as mpf10, colliding with a
+# hypothetical 0.10 -- not a real concern, MPF's 0.x line is long past 0.10,
+# but revisit this if MPF ever ships 1.x. Image filenames use the full
+# version instead (mpf0.81.0).
 mpf_token() {
   local v="$1"
   printf 'mpf%s\n' "$(printf '%s' "${v#0.}" | tr -d '.')"
@@ -170,15 +215,29 @@ case "${1:-}" in
     ;;
   --mpf-line)
     [ $# -le 2 ] || { usage; exit 2; }
-    mpf_version "${2:-}"
+    # Plain assignments, not nested $(...): only an assignment propagates a
+    # die().
+    LINE="$(mpf_line "${2:-}")"
+    echo "$LINE"
+    exit 0
+    ;;
+  --mpf-version)
+    [ $# -le 2 ] || { usage; exit 2; }
+    FULL="$(mpf_full_version "${2:-}")"
+    echo "$FULL"
+    exit 0
+    ;;
+  --python-version)
+    [ $# -le 2 ] || { usage; exit 2; }
+    PY="$(python_version "${2:-}")"
+    echo "$PY"
     exit 0
     ;;
   --config)
     [ $# -le 2 ] || { usage; exit 2; }
-    # Validates the file agrees with the line before naming it. Plain
-    # assignment, not a nested $(...): only an assignment propagates a die().
-    MPF="$(mpf_version "${2:-}")"
-    config_for "$MPF"
+    # Validates the file agrees with the line before naming it.
+    LINE="$(mpf_line "${2:-}")"
+    config_for "$LINE"
     exit 0
     ;;
   --godot-version)
@@ -206,5 +265,5 @@ validate_model "$MODEL"
 VERSION="$(resolve_version "${2:-}")"
 [ -n "$VERSION" ] || die "could not determine a version -- pass one explicitly"
 
-MPF="$(mpf_version)"
-echo "${PRODUCT}-$(mpf_token "$MPF")-$(device_layer "$MODEL")-${VERSION}"
+FULL="$(mpf_full_version)"
+echo "${PRODUCT}-mpf${FULL}-$(device_layer "$MODEL")-${VERSION}"

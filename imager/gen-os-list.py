@@ -49,7 +49,9 @@ MODEL_ORDER = ["pi5", "pi4"]
 # matrix.
 MPF_LINES = {
     "0.57": ("mpf-mc", False),
+    "0.58": ("mpf-mc", False),
     "0.80": ("Godot MC", True),
+    "0.81": ("Godot MC", True),
 }
 # Manifests from releases made before the MPF line was recorded in them
 # (v0.3.0 and earlier) were all 0.57.
@@ -79,25 +81,29 @@ IMAGER_DEVICES = [
 ]
 
 
-def mpf_label(mpf):
-    return f"MPF {mpf} \u00b7 {MPF_LINES[mpf][0]}"
+def mpf_label(mpf, mpf_version=None):
+    """MPF 0.81.0 · Godot MC -- the exact version when known, else the line."""
+    return f"MPF {mpf_version or mpf} \u00b7 {MPF_LINES[mpf][0]}"
 
 
-def default_description(model, mpf, godot_version=None):
+def default_description(model, mpf, godot_version=None, mpf_version=None,
+                        python_version=None):
     mc, ships_godot = MPF_LINES[mpf]
     # Callers may pass the pin unconditionally; it only means something for
     # a line that actually ships Godot.
     if godot_version and ships_godot:
         mc = f"{mc}, Godot {godot_version}"
+    if python_version:
+        mc = f"{mc}, Python {python_version}"
     return (
-        f"Custom MPF {mpf} ({mc}) {MODELS[model][1]} pinball image"
+        f"Custom MPF {mpf_version or mpf} ({mc}) {MODELS[model][1]} pinball image"
         " (rpi-pinball project)"
     )
 
 
-def default_name(model, mpf, version=None):
+def default_name(model, mpf, version=None, mpf_version=None):
     human = MODELS[model][1]
-    label = mpf_label(mpf)
+    label = mpf_label(mpf, mpf_version)
     if version:
         return f"{DEFAULT_NAME} {version} \u00b7 {label} ({human})"
     return f"{DEFAULT_NAME} \u00b7 {label} ({human})"
@@ -113,10 +119,18 @@ def _model_rank(entry):
 
 
 def _mpf_line_of(entry):
-    """An entry's MPF line: recorded, else from its pinbos-mpf<NN>- URL."""
+    """An entry's MPF line: recorded, else from its URL.
+
+    Image names carry pinbos-mpf0.81.0- since v0.8.0, and pinbos-mpf81-
+    before that.
+    """
     if entry.get("mpf_line"):
         return entry["mpf_line"]
-    m = re.search(r"-mpf(\d+)-", entry.get("url", ""))
+    url = entry.get("url", "")
+    m = re.search(r"-mpf(\d+)\.(\d+)\.\d+-", url)
+    if m:
+        return f"{m.group(1)}.{m.group(2)}"
+    m = re.search(r"-mpf(\d+)-", url)
     return f"0.{m.group(1)}" if m else LEGACY_MPF_LINE
 
 
@@ -152,15 +166,18 @@ def sha256_and_size(path):
 
 def build_entry(img, url, model, mpf, xz=None, name=None, description=None,
                 release_date=None, website=None, version=None,
-                godot_version=None):
+                godot_version=None, mpf_version=None, python_version=None):
+    if mpf_version and not mpf_version.startswith(mpf + "."):
+        raise SystemExit(f"--mpf-version {mpf_version} is not in MPF line {mpf}")
     extract_sha, extract_size = sha256_and_size(img)
     if xz:
         dl_sha, dl_size = sha256_and_size(xz)
     else:
         dl_sha, dl_size = extract_sha, extract_size
     return {
-        "name": name or default_name(model, mpf, version),
-        "description": description or default_description(model, mpf, godot_version),
+        "name": name or default_name(model, mpf, version, mpf_version),
+        "description": description or default_description(
+            model, mpf, godot_version, mpf_version, python_version),
         "icon": "",
         "url": url,
         "extract_size": extract_size,
@@ -177,6 +194,7 @@ def build_entry(img, url, model, mpf, xz=None, name=None, description=None,
         # Not an Imager field (Imager ignores unknown keys); lets build_repo
         # order a release's entries without parsing names.
         "mpf_line": mpf,
+        "mpf_version": mpf_version or mpf,
     }
 
 
@@ -213,7 +231,7 @@ def write_json(obj, out):
 def cmd_entry(a):
     entry = build_entry(a.img, a.url, a.model, a.mpf, a.xz, a.name,
                         a.description, a.release_date, a.website, a.version,
-                        a.godot_version)
+                        a.godot_version, a.mpf_version, a.python_version)
     # Always a full document, never a bare entry: without the imager.devices
     # block Imager's hardware filter drops the entry and the list is empty.
     write_json(build_repo([entry]), a.output)
@@ -233,10 +251,11 @@ def cmd_local(a):
     img = os.path.abspath(a.img)
     entry = build_entry(
         img, "file://" + img, a.model, a.mpf,
-        name=a.name or (f"{DEFAULT_NAME} (dev build, {mpf_label(a.mpf)}, "
+        name=a.name or (f"{DEFAULT_NAME} (dev build, {mpf_label(a.mpf, a.mpf_version)}, "
                         f"{MODELS[a.model][1]})"),
-        description=(f"{default_description(a.model, a.mpf, a.godot_version)}"
+        description=(f"{default_description(a.model, a.mpf, a.godot_version, a.mpf_version, a.python_version)}"
                      f" -- {os.path.basename(img)}"),
+        mpf_version=a.mpf_version,
     )
     write_json(build_repo([entry]), a.output)
 
@@ -255,6 +274,10 @@ def main(argv=None):
                    help="MPF release line this image was built with")
     e.add_argument("--godot-version",
                    help="pinned Godot version; shown in the description of lines that ship Godot")
+    e.add_argument("--mpf-version",
+                   help="exact MPF version in the image (e.g. 0.81.0), shown in the name")
+    e.add_argument("--python-version",
+                   help="Python version of the MPF venv, shown in the description")
     e.add_argument("--version", help="version shown in the entry name, e.g. v0.3.0")
     e.add_argument("--name")
     e.add_argument("--description")
@@ -276,6 +299,10 @@ def main(argv=None):
     l.add_argument("--mpf", required=True, choices=sorted(MPF_LINES),
                    help="MPF release line this image was built with")
     l.add_argument("--godot-version")
+    l.add_argument("--mpf-version",
+                   help="exact MPF version in the image (e.g. 0.81.0), shown in the name")
+    l.add_argument("--python-version",
+                   help="Python version of the MPF venv, shown in the description")
     l.add_argument("--name")
     l.add_argument("-o", "--output")
     l.set_defaults(func=cmd_local)
