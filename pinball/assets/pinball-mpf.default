@@ -40,6 +40,11 @@ DEVICE_TIMEOUT=30
 # show it.
 #GMC_SHOW_CURSOR=1
 
+# MPF 0.80/0.81: Godot's audio output buffer, in ms. `godot` (a wrapper)
+# adds this unless the project sets audio/driver/output_latency itself.
+# Default 60; Godot's own 15 ms default cracks on a Pi with ALSA. 0 = off.
+#GMC_AUDIO_LATENCY=60
+
 # Audio for MPF-MC (SDL), MPF 0.57/0.58. Card name from `aplay -l`. Leave unset to
 # use the ALSA default device.
 #SDL_AUDIODRIVER=alsa

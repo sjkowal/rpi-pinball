@@ -33,9 +33,15 @@
 #  under /usr/share/pinball/cursors-invisible, and gmc-run points
 #  XCURSOR_PATH at it. GMC_SHOW_CURSOR=1 keeps the pointer.
 #
+#  `godot` on $PATH is a small wrapper (pinball/assets/godot-wrapper) around
+#  /opt/godot/godot that adds --audio-output-latency 60 unless the project
+#  sets audio/driver/output_latency itself: Godot's 15 ms default underruns
+#  when it writes straight to ALSA on a Pi, as it does here (no sound
+#  server). GMC_AUDIO_LATENCY changes the value; 0 turns it off.
+#
 #  Nothing here writes to the read-only root at runtime: Godot keeps its
 #  user data and shader cache under ~/.local/share/godot, i.e. on DATA.
-# X-Env-Layer-Version: 1.2.0
+# X-Env-Layer-Version: 1.3.0
 # X-Env-Layer-Requires: pinball-mpf
 #
 # X-Env-VarPrefix: gmc
@@ -99,10 +105,17 @@ mmdebstrap:
         unzip -q "$zip" -d "$dest"
         bin="$(ls "$dest"/Godot_v*linux.arm64)"
         chmod 755 "$bin"
-        ln -sfn "$bin" /usr/local/bin/godot
+        # A fixed path for the current version; /usr/local/bin/godot is
+        # the wrapper installed below.
+        ln -sfn "$bin" /opt/godot/godot
         cd /
         rm -rf "$tmp"
       '
+    - |-
+      # `godot` on $PATH: a wrapper that adds a 60 ms audio output buffer
+      # unless the project sets its own (pinball/assets/godot-wrapper; see the
+      # header).
+      install -m 755 /home/imagegen/pinball/assets/godot-wrapper $1/usr/local/bin/godot
     - |-
       # Fail the build, not the first game, if the binary cannot start on
       # this rootfs (missing library, wrong architecture).
