@@ -28,3 +28,6 @@ mpf:
 
 layer:
   mc: pinball-gmc
+  # The default MPF project folder: mpf-sample, cloned to ~/mpf-project at a
+  # pinned commit (pinball-sample.yaml's sample_ref).
+  sample: pinball-sample

@@ -1,0 +1,75 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-sample
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: The default MPF project folder for the GMC lines (0.80,
+#  0.81): a git clone of mpf-sample (github.com/sjkowal/mpf-sample) at
+#  ~/mpf-project, so a freshly flashed image has a working game to run with
+#  `gmc-run`. mpf-sample is a GMC project (project.godot, the mpf-gmc addon
+#  vendored in addons/, slides), so the mpf-mc lines (0.57, 0.58) do not
+#  get it.
+#
+#  Pinned to an exact commit (sample_ref) so a release always ships the same
+#  sample; bump it on purpose. The clone keeps .git with `main` tracking
+#  origin/main, so `git pull` updates it on the Pi, and pointing origin at
+#  your own repo turns it into your game.
+#
+#  The Godot assets are imported at build time (gmc-run with
+#  GMC_IMPORT_ONLY=1), with the same Godot binary the Pi runs, so the first
+#  `gmc-run` finds its import stamp and starts straight away. On the
+#  read-only images the home directory is later moved to /data by
+#  pinball-firstboot.sh with `cp -a`, which keeps the timestamps the stamp
+#  relies on.
+#
+#  Autostart stays off: there is no .autostart in the clone, so MPF at boot
+#  still waits for `pinball-autostart on`.
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Requires: pinball-gmc
+#
+# X-Env-VarPrefix: sample
+#
+# X-Env-Var-repo: https://github.com/sjkowal/mpf-sample.git
+# X-Env-Var-repo-Desc: Git URL of the sample MPF project folder. Also its
+#  `origin` on the image.
+# X-Env-Var-repo-Required: n
+# X-Env-Var-repo-Valid: regex:^https://.+$
+# X-Env-Var-repo-Set: y
+#
+# X-Env-Var-ref: f56726b7d60e8d93bcf67affcfc24a1e75428240
+# X-Env-Var-ref-Desc: Exact commit of the sample to ship, as a full 40-hex
+#  SHA (not a branch, so two builds of one release cannot differ). Checked
+#  out as the local `main`, tracking origin/main.
+# X-Env-Var-ref-Required: n
+# X-Env-Var-ref-Valid: regex:^[0-9a-f]{40}$
+# X-Env-Var-ref-Set: y
+# METAEND
+---
+mmdebstrap:
+  packages:
+    - git
+  customize-hooks:
+    - |-
+      # Clone on the build host (git is in the build container) straight
+      # into the user's home in the rootfs, then pin to sample_ref.
+      set -eu
+      home="$(chroot $1 getent passwd "$IGconf_device_user1" | cut -d: -f6)"
+      [ -n "$home" ] || { echo "pinball-sample: no user $IGconf_device_user1" >&2; exit 1; }
+      dest="$1$home/mpf-project"
+      rm -rf "$dest"
+      git clone -q "$IGconf_sample_repo" "$dest"
+      git -C "$dest" checkout -q -B main "$IGconf_sample_ref"
+      git -C "$dest" branch -q --set-upstream-to=origin/main main
+      have="$(git -C "$dest" rev-parse HEAD)"
+      [ "$have" = "$IGconf_sample_ref" ] || { echo "pinball-sample: HEAD is $have, expected $IGconf_sample_ref" >&2; exit 1; }
+      echo "pinball-sample: $IGconf_sample_repo at $have -> $home/mpf-project"
+      chroot $1 chown -R "$IGconf_device_user1:$IGconf_device_user1" "$home/mpf-project"
+    - |-
+      # Import the Godot assets now, as the user (Godot writes its editor
+      # settings and caches under ~/.local and ~/.cache). Fails the build if
+      # the import does.
+      set -eu
+      home="$(chroot $1 getent passwd "$IGconf_device_user1" | cut -d: -f6)"
+      chroot $1 runuser -u "$IGconf_device_user1" -- env -i HOME="$home" \
+        PATH=/opt/mpf/venv/bin:/usr/local/bin:/usr/bin:/bin \
+        GMC_IMPORT_ONLY=1 gmc-run "$home/mpf-project"
+      [ -f "$1$home/mpf-project/.godot/pinball-import.stamp" ] \
+        || { echo "pinball-sample: no import stamp after gmc-run" >&2; exit 1; }
