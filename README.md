@@ -110,7 +110,7 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner; all eight images
 - MPF installed into a dedicated venv at `/opt/mpf/venv` (`pinball/layer/pinball-mpf.yaml`). The exact version is pinned once per line, as `mpf.version` in `pinball/pinball-mpf<NN>.yaml`. The `pip install` hook and the `mpf<version>` part of the image filename both come from it, and the build checks the venv, so they cannot drift.
 - **Python:** Debian's 3.11 on 0.57 and 0.58. On 0.80 and 0.81, Python 3.14.10 from python-build-standalone at `/opt/python/3.14.10/`, which the venv is built from. `python3` on the system stays Debian's 3.11 either way; MPF and `pip` in `/opt/mpf/venv` use the venv's Python.
 - **MPF 0.57 and 0.58 images**: `mpf-mc` 0.57.1 in the same venv (`pinball/layer/pinball-mpf-mc.yaml`).
-- **MPF 0.80 and 0.81 images**: the official Godot 4.7.2 `linux.arm64` build, checksum-verified at build time, at `/opt/godot/<version>/` and on `$PATH` as `godot` — exactly what `mpf both` looks for, so no `gmc.cfg` changes are needed. Plus `cage` (a single-app Wayland compositor), `seatd`, and Mesa's Vulkan/GLES drivers (`pinball/layer/pinball-gmc.yaml`). The GMC plugin itself is **not** on the image: it lives in your game project (`addons/mpf-gmc`), as the GMC docs describe.
+- **MPF 0.80 and 0.81 images**: the official Godot 4.7.2 `linux.arm64` build, checksum-verified at build time, at `/opt/godot/<version>/` and on `$PATH` as `godot` — exactly what `mpf both` looks for, so no `gmc.cfg` changes are needed. Plus `cage` (a single-app Wayland compositor), `seatd`, and Mesa's Vulkan/GLES drivers (`pinball/layer/pinball-gmc.yaml`). The GMC plugin itself is **not** on the image: it lives in your game project (`addons/mpf-gmc`), as the GMC docs describe. A sample GMC project is cloned to `~/mpf-project` (`pinball/layer/pinball-sample.yaml`; see *The MPF project folder* below).
 - SSH enabled; WiFi via NetworkManager (`pinball-networkmanager`); hostname, user, password, WiFi credentials and SSH keys all come from Imager's OS Customisation (`init_format: rpi-preseed`; Imager applies most of it at flash time, anything deferred to boot is consumed by `pinball-readonly-root`'s first-boot script).
 - Working DNS resolution.
 - P-ROC/P3-ROC hardware support: `libpinproc` (built from the `dev` branch) installed system-wide, the `pinproc` Python extension (`pypinproc`) installed into the MPF venv, and udev rules so the boards are accessible without root.
@@ -121,9 +121,21 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner; all eight images
 - Boot splash (`rpi-splash-screen`, image from `pinball/assets/splash.tga`, currently a placeholder) and quiet boot (`pinball-quiet-boot`).
 - Development conveniences — `git`, `htop`, `vim` (`packages:` in `pinball/pinball.yaml`) — **temporary**.
 
-## What's *not* on the image (yet)
+## The MPF project folder (`~/mpf-project`)
 
-- No MPF project folder (your actual game config/code; MPF's own docs call it the "MPF project folder") is baked in. The image expects it at `~/mpf-project`. Add yours after first boot, e.g.:
+Your game's config and code (MPF's docs call it the "MPF project folder") live at `~/mpf-project`.
+
+- **MPF 0.80 and 0.81 images ship a sample game there:** [mpf-sample](https://github.com/sjkowal/mpf-sample), a small GMC project with an attract-mode slide and sound. It needs no pinball hardware, so you can try it straight after flashing:
+  ```bash
+  ssh <user>@<device-ip>
+  cd ~/mpf-project && gmc-run
+  ```
+  - **It's a git clone:** `main` tracks `origin/main`, so `git pull` updates it.
+  - **To turn it into your game,** point it at your own repo (`git remote set-url origin <your-repo>`), or replace the folder: `rm -rf ~/mpf-project && git clone <your-repo> ~/mpf-project`.
+  - **Its Godot assets are imported at build time,** so the first `gmc-run` starts right away.
+  - **Autostart is still off.** Run `pinball-autostart on` to boot into it.
+  - **Which commit ships** is `sample_ref` in `pinball/layer/pinball-sample.yaml`, a full commit SHA. Change it to ship a newer sample; the build fails unless the clone is at exactly that commit.
+- **MPF 0.57 and 0.58 images start without one,** since mpf-sample is a GMC project that mpf-mc can't display. Add yours after first boot:
   ```bash
   ssh <user>@<device-ip>
   git clone <your-mpf-project-repo> ~/mpf-project
@@ -131,7 +143,7 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner; all eight images
   ```
   `mpf both` runs the core engine and media controller together — that's what you want for a full running machine. `mpf` alone only runs the core (no display), `mpf mc` alone only runs the media controller. `machine_path` is optional if you're already `cd`'d into a folder with a `config/` subfolder in it. (`mpf`/`mpf-mc` are on `$PATH` via `/etc/profile.d/mpf-path.sh`.)
 
-  **On an MPF 0.80 or 0.81 image**, use `gmc-run` instead:
+  **Running a project on an MPF 0.80 or 0.81 image:** use `gmc-run` rather than `mpf both`:
   ```bash
   cd ~/mpf-project && git pull && gmc-run      # or: gmc-run ~/mpf-project
   ```
@@ -139,7 +151,7 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner; all eight images
   1. **Imports the Godot project's assets** with `godot --headless --import`. This step is **required**, not an optimisation. Running a project from source, which is what `mpf both` does, never imports assets; only the editor or `--import` does. Without it every image, sound and font fails to load (`No loader found for resource`), and new or changed assets fail again until the next import. It's skipped when nothing in the project changed since the last import, since it costs seconds at every boot. A timestamp file in `.godot/` tracks this, and MPF's own runtime files (`logs/`, `data/`, `*.bundle`, `.autostart`) don't count as changes. Files copied in with their old timestamps kept (`cp -p`, `rsync -t`) aren't noticed; run `GMC_FORCE_IMPORT=1 gmc-run` after those.
   2. **Starts `cage -- mpf both`.** Godot needs a display server, and cage provides a full-screen one. This works from the console and over SSH, because `seatd` gives cage the seat either way. **The mouse pointer is hidden.** cage itself only hides it when no pointing device is connected, so `gmc-run` points cage and Godot at an all-transparent cursor theme. To keep the pointer, run `GMC_SHOW_CURSOR=1 gmc-run`, or set `GMC_SHOW_CURSOR=1` in `/etc/default/pinball-mpf` for MPF at boot.
 
-  `mpf both` starts `godot` against the `project.godot` in your MPF project folder, or wherever `gmc.cfg`'s `gmc_project_path` points; `gmc-run` imports that same folder. Arguments after the folder go to `mpf both` (`gmc-run ~/mpf-project -X`). `GMC_SKIP_IMPORT=1` skips the import, and `GMC_FORCE_IMPORT=1` forces it. To do it by hand: `godot --headless --import`, then `cage -- mpf both`.
+  `mpf both` starts `godot` against the `project.godot` in your MPF project folder, or wherever `gmc.cfg`'s `gmc_project_path` points; `gmc-run` imports that same folder. Arguments after the folder go to `mpf both` (`gmc-run ~/mpf-project -X`). `GMC_SKIP_IMPORT=1` skips the import, `GMC_FORCE_IMPORT=1` forces it, and `GMC_IMPORT_ONLY=1` imports and then exits without running anything. To do it by hand: `godot --headless --import`, then `cage -- mpf both`.
 
   On a fresh checkout (no `.godot/` folder yet), the first import prints around 17 parse errors from GMC's own editor plugin, which tries to load its icons before they're imported; a second import is clean. `gmc-run` runs the first pass silently for that reason. `godot --import` exits 0 even when assets fail, so read its output rather than trusting the exit status. Don't copy `.godot/` from your desktop; let the Pi build its own.
 

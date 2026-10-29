@@ -95,9 +95,11 @@ def default_description(model, mpf, godot_version=None, mpf_version=None,
         mc = f"{mc}, Godot {godot_version}"
     if python_version:
         mc = f"{mc}, Python {python_version}"
+    # The GMC lines ship mpf-sample (the pinball-sample layer).
+    sample = " with a sample game in ~/mpf-project" if ships_godot else ""
     return (
         f"Custom MPF {mpf_version or mpf} ({mc}) {MODELS[model][1]} pinball image"
-        " (rpi-pinball project)"
+        f"{sample} (rpi-pinball project)"
     )
 
 
