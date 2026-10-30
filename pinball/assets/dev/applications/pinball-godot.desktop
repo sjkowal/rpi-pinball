@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Godot Engine
+Comment=Godot project manager (the same Godot the game runs on)
+Exec=bash -lc 'exec godot --project-manager'
+Icon=/usr/share/pinball/icons/godot.svg
+Terminal=false
+Categories=Development;

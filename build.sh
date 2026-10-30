@@ -10,21 +10,32 @@ RPI_CUSTOMIZATIONS_DIR="pinball"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NAMER="${ROOT}/scripts/image-name.sh"
 
-# Which Raspberry Pi and which MPF release line to build for. One run builds
-# one (model, line) pair. The supported lists and the artifact naming rule
-# all live in scripts/image-name.sh.
+# Which Raspberry Pi, which MPF release line and which image variant to
+# build. One run builds one (model, line, variant). The supported lists and
+# the artifact naming rule all live in scripts/image-name.sh.
 PI_MODEL="${1:-${PI_MODEL:-pi5}}"
+# `game` (default, the pinball appliance) or `dev` (PinbOS Dev, the desktop
+# development image). Exported for image-name.sh, like MPF_VERSION; it
+# selects that variant's models, lines, config and filename.
+export IMAGE_VARIANT="${3:-${IMAGE_VARIANT:-game}}"
 # Exported: image-name.sh reads it for both the config and the filename, so
 # the two cannot disagree. Empty means image-name.sh's default line.
 export MPF_VERSION="${2:-${MPF_VERSION:-}}"
 
 usage() {
-  echo "   Usage: $0 [$("$NAMER" --models | tr ' ' '|')] [$("$NAMER" --mpf-lines | tr ' ' '|')]"
-  echo "   (defaults: pi5 and MPF $(MPF_VERSION= "$NAMER" --mpf-line); PI_MODEL= / MPF_VERSION= also work)"
+  echo "   Usage: $0 [$("$NAMER" --models | tr ' ' '|')] [$("$NAMER" --mpf-lines | tr ' ' '|')] [$(IMAGE_VARIANT= "$NAMER" --variants | tr ' ' '|')]"
+  echo "   (defaults: pi5, MPF $(IMAGE_VARIANT= MPF_VERSION= "$NAMER" --mpf-line) and the game image; PI_MODEL= / MPF_VERSION= / IMAGE_VARIANT= also work)"
+  echo "   PinbOS Dev, the desktop image: $0 pi5 0.81 dev"
 }
 
+# (image-name.sh says what's wrong; usage() itself would fail the same way.)
+if ! "$NAMER" --variant > /dev/null; then
+  echo "   Usage: $0 [model] [mpf line] [$(IMAGE_VARIANT= "$NAMER" --variants | tr ' ' '|')]"
+  exit 2
+fi
+
 if ! echo " $("$NAMER" --models) " | grep -q " ${PI_MODEL} "; then
-  echo "🛑 Unknown Pi model '${PI_MODEL}'."
+  echo "🛑 Unknown Pi model '${PI_MODEL}' for the ${IMAGE_VARIANT} image."
   usage
   exit 2
 fi
@@ -74,7 +85,7 @@ ensure_cleanup() {
 # Set the trap to execute the ensure_cleanup function on EXIT
 trap ensure_cleanup EXIT
 
-echo "🎯 Target: ${PI_MODEL} (device layer ${RPI_DEVICE_LAYER}), MPF ${MPF_FULL} on Python ${MPF_PYTHON:-3.11 (Debian)} (${RPI_CONFIG_FILE}) -> ${RPI_IMAGE_OUT_NAME}"
+echo "🎯 Target: ${IMAGE_VARIANT} image, ${PI_MODEL} (device layer ${RPI_DEVICE_LAYER}), MPF ${MPF_FULL} on Python ${MPF_PYTHON:-3.11 (Debian)} (${RPI_CONFIG_FILE}) -> ${RPI_IMAGE_OUT_NAME}"
 echo "🔨 Building Docker image with rpi-image-gen to create ${RPI_BUILD_SVC}..."
 docker compose build ${RPI_BUILD_SVC}
 
@@ -137,4 +148,4 @@ BUILT_IMG=$(printf '%s\n' "$BUILT_IMGS" | head -n 1)
 mkdir -p "${RPI_IMAGE_OUT_DIR}"
 docker cp "${CID}:${BUILT_IMG}" "${OUT}"
 
-echo "🚀 Completed ${PI_MODEL} / MPF ${MPF_FULL} build -> ${OUT}"
+echo "🚀 Completed ${IMAGE_VARIANT} ${PI_MODEL} / MPF ${MPF_FULL} build -> ${OUT}"

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Edit Game in VS Code
+Comment=Open the MPF project folder (~/mpf-project) in Visual Studio Code
+Exec=bash -lc 'exec code "$HOME/mpf-project"'
+Icon=vscode
+Terminal=false
+Categories=Development;

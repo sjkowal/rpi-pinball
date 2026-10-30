@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=PinbOS Dev welcome page (first login)
+Exec=pinball-welcome --once
+NoDisplay=true

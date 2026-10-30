@@ -1,0 +1,63 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-dev-image-rpios
+# X-Env-Layer-Category: image
+# X-Env-Layer-Desc: Layout for the PinbOS Dev (desktop) image: MBR, vfat
+#  BOOT partition and an ext4 ROOT partition, both mounted read-write like
+#  Raspberry Pi OS. ROOT is the last partition and is grown to fill the
+#  storage device on first boot by the pinball-dev-firstboot layer.
+#  A two-partition copy of pinball-image-rpios (the read-only game layout),
+#  kept separate so the game images cannot be affected. It keeps that
+#  layout's fixed disk signature and PARTUUID root= (the by-slot root
+#  discovery does not work on real Pi 5 hardware; see
+#  docs/rpi-image-gen-notes.md).
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Requires: image-base,rpi-storage-binder
+# X-Env-Layer-Provides: image
+#
+# X-Env-VarPrefix: image
+#
+# X-Env-Var-rootfs_type: ext4
+# X-Env-Var-rootfs_type-Desc: Root filesystem type.
+# X-Env-Var-rootfs_type-Required: n
+# X-Env-Var-rootfs_type-Valid: ext4,
+# X-Env-Var-rootfs_type-Set: y
+# X-Env-Var-rootfs_type-Triggers:
+#  when=IGconf_image_rootfs_type == 'ext4' set IGconf_fs_ext4_mkfs_args="-F -b ${IGconf_linux_page_size}" policy=lazy
+#
+# X-Env-Var-boot_part_size: 100%
+# X-Env-Var-boot_part_size-Desc: Boot partition size
+# X-Env-Var-boot_part_size-Required: n
+# X-Env-Var-boot_part_size-Valid: size
+# X-Env-Var-boot_part_size-Set: y
+#
+# X-Env-Var-root_part_size: 5G
+# X-Env-Var-root_part_size-Desc: Root partition size in the image. Must
+#  exceed the built rootfs (exact fit, 100%, fails in mke2fs); grown to fill
+#  the device on first boot.
+# X-Env-Var-root_part_size-Required: n
+# X-Env-Var-root_part_size-Valid: size
+# X-Env-Var-root_part_size-Set: y
+#
+# X-Env-Var-assetdir: ${DIRECTORY}
+# X-Env-Var-assetdir-Desc: Image specific asset directory
+# X-Env-Var-assetdir-Required: n
+# X-Env-Var-assetdir-Valid: dir
+# X-Env-Var-assetdir-Set: y
+#
+# X-Env-Var-disksig: random
+# X-Env-Var-disksig-Desc: MBR disk signature supplied as a 32-bit hexadecimal number, or 'random'
+# X-Env-Var-disksig-Required: n
+# X-Env-Var-disksig-Valid: regex:^(random|0x[0-9a-fA-F]{8})$
+# X-Env-Var-disksig-Set: lazy
+#
+# X-Env-Var-pmap: clear
+# X-Env-Var-pmap-Desc: Provisioning Map identifier for this image layout.
+#  All partitions are provisioned unencrypted (clear).
+# X-Env-Var-pmap-Required: n
+# X-Env-Var-pmap-Valid: clear,
+# X-Env-Var-pmap-Set: y
+# METAEND
+---
+mmdebstrap:
+  packages:
+    - initramfs-tools

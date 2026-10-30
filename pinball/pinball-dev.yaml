@@ -1,0 +1,72 @@
+# PinbOS Dev: SHARED BASE of the desktop development image -- not built
+# directly (pinball-dev-mpf81.yaml includes it and adds the MPF line).
+#
+# A separate base from pinball.yaml on purpose: that one is the game
+# appliance (read-only root with a DATA partition, boot-time trims, MPF at
+# boot, the eth0 fallback address). This image is for learning on the Pi
+# itself: the Raspberry Pi desktop, a normal writable root that grows to fill
+# the card, the Godot editor, VS Code and the mpf-sample game. Settings that
+# both share are copied from pinball.yaml, which has the full reasoning.
+# `./build.sh pi5 0.81 dev` builds it.
+
+device:
+  # Pi 5 only (DEV_MODELS in scripts/image-name.sh). build.sh still passes
+  # IGconf_device_layer, as for the game images.
+  layer: rpi5
+  hostname: pinball
+  # Locked UID-1000 placeholder that Raspberry Pi Imager's OS Customisation
+  # renames and gives a password -- the same as pinball.yaml.
+  user1: pinball
+  user1sudo: nopasswd
+
+image:
+  # Two partitions (BOOT + ROOT), both read-write; ROOT grows on first boot
+  # (pinball-dev-firstboot). pinball/image/pinball-dev-rpios/.
+  layer: pinball-dev-image-rpios
+  # Raspberry Pi OS's size. Not the game images' 45M: this image keeps the
+  # initramfs (no pinball-boot-time), which left 45M 99% full, and a desktop
+  # is expected to take kernel and EEPROM updates with apt. The empty space
+  # costs almost nothing in the .xz.
+  boot_part_size: 512M
+  # Fixed, with headroom: genimage's exact fit ("100%") leaves mke2fs no
+  # room ("Could not allocate block") for this rootfs. Built rootfs is
+  # ~3.3G; the empty space costs little in the .xz. Grown to fill the device
+  # on first boot (pinball-dev-firstboot).
+  root_part_size: 5G
+  name: pinball-dev
+  # Root by PARTUUID derived from this fixed disk signature -- see
+  # pinball.yaml's `disksig` comment for why.
+  disksig: "0x50494e42"
+
+# Same ext4 fixes as pinball.yaml (16K-page kernel block size, no
+# metadata_csum/64bit).
+fs:
+  ext4_mkfs_args: "-F -b 4096 -O ^64bit,^metadata_csum"
+
+layer:
+  base: bookworm-minbase
+  # NetworkManager for wifi (Imager's wifi profile); pinball-desktop then
+  # hands eth0 to it as well.
+  wifi_nm: pinball-networkmanager
+  wifi_reg: wireless-regulatory
+  # Grow ROOT, apply any deferred Imager preseed, name the autologin user.
+  firstboot: pinball-dev-firstboot
+  locale: locale-base
+  locale_gen: locale-gen
+  mpf: pinball-mpf
+  proc: pinball-proc
+  bootdev_fix: pinball-bootdev-fix
+  # The Raspberry Pi desktop (labwc), Chromium, terminal, PipeWire.
+  desktop: pinball-desktop
+  # VS Code, launchers, the welcome page.
+  devtools: pinball-devtools
+  # Deliberately absent (they belong to the game appliance):
+  # pinball-readonly-root, pinball-boot-time, pinball-mpf-service (MPF at
+  # boot would fight the desktop for the display), pinball-net-fallback,
+  # and the splash/quiet-boot layers.
+
+locale:
+  timezone: America/Chicago
+
+packages:
+  - htop
