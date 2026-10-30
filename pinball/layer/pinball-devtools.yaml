@@ -1,0 +1,73 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-devtools
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: The newcomer tooling on the PinbOS Dev image, on top of
+#  the desktop (pinball-desktop), Godot (pinball-gmc) and the sample game in
+#  ~/mpf-project (pinball-sample):
+#  - VS Code (`code`, from archive.raspberrypi.com), git and vim.
+#  - Menu entries, also placed on the desktop: Run Pinball Game (gmc-run in
+#    a terminal), Edit Game in Godot, Edit Game in VS Code, the Godot
+#    project manager, the MPF/GMC docs, and the welcome page.
+#  - A local welcome page (/usr/share/pinball/welcome) that opens once at
+#    the first desktop login (pinball-welcome --once, from
+#    /etc/xdg/autostart) and from the menu after that.
+#  Assets: pinball/assets/dev/.
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Requires: pinball-desktop,pinball-sample
+# METAEND
+---
+mmdebstrap:
+  packages:
+    - code
+    - git
+    - vim
+    - curl
+    - ca-certificates
+  customize-hooks:
+    - |-
+      # Godot's own logo for the launchers, from the same release tag the
+      # image's Godot comes from (pinball-gmc's godot_version).
+      set -eu
+      mkdir -p $1/usr/share/pinball/icons
+      curl -fsSL -o $1/usr/share/pinball/icons/godot.svg \
+        "https://raw.githubusercontent.com/godotengine/godot/${IGconf_gmc_godot_version}-stable/misc/logo/icon.svg"
+      grep -q '<svg' $1/usr/share/pinball/icons/godot.svg
+    - |-
+      # Menu entries, the welcome script and its first-login autostart.
+      set -eu
+      A=/home/imagegen/pinball/assets/dev
+      install -m 644 $A/applications/*.desktop $1/usr/share/applications/
+      install -m 755 $A/pinball-welcome $1/usr/local/bin/pinball-welcome
+      install -D -m 644 $A/pinball-welcome-once.desktop $1/etc/xdg/autostart/pinball-welcome-once.desktop
+    - |-
+      # The welcome page, with this image's versions filled in.
+      set -eu
+      # (safe.directory: the clone already belongs to the image's user.)
+      sample_ref="$(git -c safe.directory='*' -C "$1$(chroot $1 getent passwd "$IGconf_device_user1" | cut -d: -f6)/mpf-project" rev-parse --short HEAD)"
+      install -d $1/usr/share/pinball/welcome
+      sed -e "s/@MPF_VERSION@/$IGconf_mpf_version/g" \
+          -e "s/@GODOT_VERSION@/$IGconf_gmc_godot_version/g" \
+          -e "s/@SAMPLE_REF@/$sample_ref/g" \
+          /home/imagegen/pinball/assets/dev/welcome/index.html > $1/usr/share/pinball/welcome/index.html
+      if grep -n '@[A-Z_]*@' $1/usr/share/pinball/welcome/index.html; then
+        echo "pinball-devtools: unfilled placeholder in the welcome page" >&2; exit 1
+      fi
+    - |-
+      # The launchers on the user's desktop too. Imager's rename of the
+      # account moves the home folder, Desktop included.
+      set -eu
+      home="$(chroot $1 getent passwd "$IGconf_device_user1" | cut -d: -f6)"
+      install -d "$1$home/Desktop"
+      for f in pinball-run-game pinball-godot-editor pinball-code pinball-welcome; do
+        install -m 755 /home/imagegen/pinball/assets/dev/applications/$f.desktop "$1$home/Desktop/$f.desktop"
+      done
+      chroot $1 chown -R "$IGconf_device_user1:$IGconf_device_user1" "$home/Desktop"
+    - |-
+      # Checks that only show on a real desktop otherwise: the session runs
+      # /etc/xdg/autostart entries (the welcome page relies on it), and the
+      # VS Code launcher's icon name exists.
+      set -eu
+      grep -qs 'xdg-autostart' $1/etc/xdg/labwc/autostart \
+        || echo "pinball-devtools: WARNING: /etc/xdg/labwc/autostart does not run xdg autostart entries; the welcome page won't open by itself" >&2
+      [ -e $1/usr/share/pixmaps/vscode.png ] || [ -e $1/usr/share/pixmaps/vscode.svg ] \
+        || echo "pinball-devtools: WARNING: no 'vscode' icon found for the VS Code launcher" >&2

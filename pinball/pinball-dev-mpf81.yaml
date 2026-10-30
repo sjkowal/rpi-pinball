@@ -1,0 +1,18 @@
+# PinbOS Dev, MPF 0.81 line: the desktop development image (pinball-dev.yaml)
+# with MPF 0.81.0, the Godot Media Controller runtime and the mpf-sample
+# game. The mpf: block matches pinball-mpf81.yaml, so the dev image runs
+# exactly what the 0.81 game image runs; keep the two in step.
+# build.sh picks it via `IMAGE_VARIANT=dev scripts/image-name.sh --config 0.81`.
+include:
+  file: pinball-dev.yaml
+
+mpf:
+  # The single source of truth for this image's MPF version (see
+  # pinball-mpf81.yaml). Keep it on its own line, quoted.
+  version: "0.81.0"
+  python_version: "3.14.10"
+  python_build: "20261026"
+
+layer:
+  mc: pinball-gmc
+  sample: pinball-sample

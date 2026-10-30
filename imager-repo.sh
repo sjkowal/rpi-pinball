@@ -9,15 +9,17 @@
 # verification caveats.
 #
 # With no arguments it covers the newest build of EVERY (model, MPF line)
-# pair present in pinball/deploy/, so a local Imager filters by whichever
-# board you picked and offers each MPF line for it -- same behaviour as the
-# hosted repo. Pass a model and/or an MPF line to narrow it, or a path to use
-# one specific image.
+# pair present in pinball/deploy/, for both the game images and PinbOS Dev
+# (pinbos-dev-*), so a local Imager filters by whichever board you picked
+# and offers each MPF line for it -- same behaviour as the hosted repo. Pass
+# a model, an MPF line and/or a variant (game, dev) to narrow it, or a path
+# to use one specific image.
 #
-#   ./imager-repo.sh                 # newest build of each model x MPF line
+#   ./imager-repo.sh                 # newest build of each model x MPF line x variant
 #   ./imager-repo.sh pi4             # newest pi4 build of each MPF line
 #   ./imager-repo.sh 0.81            # newest MPF 0.81 build of each model
-#   ./imager-repo.sh pi4 0.81        # newest pi4 MPF 0.81 build only
+#   ./imager-repo.sh pi4 0.81        # newest pi4 MPF 0.81 game build only
+#   ./imager-repo.sh dev             # newest PinbOS Dev build(s) only
 #   ./imager-repo.sh pinball/deploy/pinbos-mpf0.57.6-rpi4-v0.8.0.img
 #
 # Thin wrapper: the manifest shape itself lives in imager/gen-os-list.py,
@@ -27,8 +29,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$ROOT/pinball/deploy"
 GEN="$ROOT/imager/gen-os-list.py"
-MODELS="$("$ROOT/scripts/image-name.sh" --models)"
-MPF_LINES="$("$ROOT/scripts/image-name.sh" --mpf-lines)"
+# The game variant's lists; PinbOS Dev's are a subset of them, checked per
+# variant below.
+MODELS="$(IMAGE_VARIANT=game "$ROOT/scripts/image-name.sh" --models)"
+MPF_LINES="$(IMAGE_VARIANT=game "$ROOT/scripts/image-name.sh" --mpf-lines)"
+VARIANTS="$(IMAGE_VARIANT=game "$ROOT/scripts/image-name.sh" --variants)"
 GODOT_VERSION="$("$ROOT/scripts/image-name.sh" --godot-version)"
 OUT="$DEPLOY_DIR/local_repo.json"
 
@@ -55,6 +60,27 @@ is_mpf_line() {
     fi
   done
   return 1
+}
+
+is_variant() {
+  case " $VARIANTS " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
+# PinbOS Dev images are named pinbos-dev-mpf...; everything else is a game
+# image.
+variant_of() {
+  case "$(basename "$1")" in
+    pinbos-dev-*) echo dev ;;
+    *) echo game ;;
+  esac
+}
+
+# Whether a variant is built for a (model, line): `dev` has fewer of both.
+variant_has() { # variant model line
+  local v="$1"
+  case " $(IMAGE_VARIANT="$v" "$ROOT/scripts/image-name.sh" --models) " in *" $2 "*) ;; *) return 1 ;; esac
+  case " $(IMAGE_VARIANT="$v" "$ROOT/scripts/image-name.sh" --mpf-lines) " in *" $3 "*) ;; *) return 1 ;; esac
 }
 
 # Images are named pinbos-mpf<version>-rpi<N>-<release>.img (pinbos-mpf<NN>-... before v0.8.0), so the model and the
@@ -93,40 +119,50 @@ mpf_of() {
   echo "$n"
 }
 
-newest_for() {
+newest_for() { # model line variant
   # Both naming styles: pinbos-mpf0.81.<patch>-rpi5-* and pinbos-mpf81-rpi5-*.
+  # The globs also match pinbos-dev-*, so keep only the asked-for variant.
   # shellcheck disable=SC2012  # -t ordering is the point; names have no newlines
   ls -t "$DEPLOY_DIR"/*-mpf"$2".[0-9]*-rpi"${1#pi}"-*.img \
-        "$DEPLOY_DIR"/*-mpf"$(mpf_digits "$2")"-rpi"${1#pi}"-*.img 2>/dev/null | head -n1
+        "$DEPLOY_DIR"/*-mpf"$(mpf_digits "$2")"-rpi"${1#pi}"-*.img 2>/dev/null |
+    while IFS= read -r f; do
+      [ "$(variant_of "$f")" = "$3" ] && echo "$f"
+    done | head -n1
 }
 
 # Resolve the list of images to cover: a path, or model/line filters.
 IMAGES=""
 WANT_MODELS="$MODELS"
 WANT_LINES="$MPF_LINES"
+WANT_VARIANTS="$VARIANTS"
 if [ $# -eq 1 ] && [ -f "$1" ]; then
   IMAGES="$1"
 else
-  [ $# -le 2 ] || die "Usage: $0 [model] [mpf line] | <image.img>"
+  [ $# -le 3 ] || die "Usage: $0 [model] [mpf line] [variant] | <image.img>"
   for arg in "$@"; do
     if is_model "$arg"; then
       WANT_MODELS="$arg"
     elif is_mpf_line "$arg"; then
       WANT_LINES="$arg"
+    elif is_variant "$arg"; then
+      WANT_VARIANTS="$arg"
     else
-      die "Not a file, a supported model ($MODELS) or a supported MPF line ($MPF_LINES): $arg"
+      die "Not a file, a supported model ($MODELS), MPF line ($MPF_LINES) or variant ($VARIANTS): $arg"
     fi
   done
-  for model in $WANT_MODELS; do
-    for line in $WANT_LINES; do
-      found="$(newest_for "$model" "$line" || true)"
-      if [ -n "$found" ]; then
-        IMAGES="${IMAGES}${found}
+  for variant in $WANT_VARIANTS; do
+    for model in $WANT_MODELS; do
+      for line in $WANT_LINES; do
+        variant_has "$variant" "$model" "$line" || continue
+        found="$(newest_for "$model" "$line" "$variant" || true)"
+        if [ -n "$found" ]; then
+          IMAGES="${IMAGES}${found}
 "
-      fi
+        fi
+      done
     done
   done
-  [ -n "$IMAGES" ] || die "No matching images in $DEPLOY_DIR (expected pinbos-mpf<version>-rpi<N>-*.img for models: $WANT_MODELS; MPF lines: $WANT_LINES). Build one with ./build.sh [model] [mpf line]"
+  [ -n "$IMAGES" ] || die "No matching images in $DEPLOY_DIR (expected pinbos[-dev]-mpf<version>-rpi<N>-*.img for models: $WANT_MODELS; MPF lines: $WANT_LINES; variants: $WANT_VARIANTS). Build one with ./build.sh [model] [mpf line] [variant]"
 fi
 
 # One entry document per image, then merge them into a single local repo.
@@ -137,14 +173,15 @@ while IFS= read -r img; do
   model="$(model_of "$img")" || die "Cannot tell which Pi model $(basename "$img") is for -- expected a pinbos-mpf<version>-rpi<N>-<release>.img name. Pass a supported model ($MODELS) to use the newest build for that board instead."
   line="$(mpf_of "$img")" || die "Cannot tell which MPF line $(basename "$img") holds -- expected a pinbos-mpf<version>-rpi<N>-<release>.img name, with an MPF version in one of: $MPF_LINES"
   full="$(mpf_full_of "$img")"
-  manifest="$TMP/$model-$line.json"
+  variant="$(variant_of "$img")"
+  manifest="$TMP/$variant-$model-$line.json"
   # gen-os-list.py only shows the Godot pin for lines that ship Godot. No
   # --python-version: the filename doesn't record it, and an older image in
   # deploy/ may predate the current config.
-  python3 "$GEN" local --img "$img" --model "$model" --mpf "$line" ${full:+--mpf-version "$full"} --godot-version "$GODOT_VERSION" -o "$manifest"
+  python3 "$GEN" local --img "$img" --model "$model" --mpf "$line" ${full:+--mpf-version "$full"} --godot-version "$GODOT_VERSION" --variant "$variant" -o "$manifest"
   MANIFESTS="$MANIFESTS $manifest"
   COUNT=$((COUNT + 1))
-  echo "Covers $(basename "$img") ($model, MPF ${full:-$line})"
+  echo "Covers $(basename "$img") ($variant, $model, MPF ${full:-$line})"
 done <<< "$IMAGES"
 
 # shellcheck disable=SC2086  # deliberate word splitting of the manifest list
@@ -153,7 +190,7 @@ python3 "$GEN" repo $MANIFESTS -o "$OUT"
 echo
 echo "In Raspberry Pi Imager: App Options -> Content Repository -> EDIT ->"
 echo "Use custom file -> select $OUT -> APPLY & RESTART."
-echo "Then pick the \"PinbOS (dev build, ...)\" entry for your board from the OS"
+echo "Then pick the \"PinbOS (dev build, ...)\" or \"PinbOS Dev (local build, ...)\" entry for your board from the OS"
 echo "list (NOT \"Use custom\") -- that's what makes the Customisation step"
 echo "appear. Entries are filtered by the device you chose, so only the images"
 echo "built for that board are offered (one per MPF line)."

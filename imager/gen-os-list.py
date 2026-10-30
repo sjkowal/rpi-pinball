@@ -53,6 +53,15 @@ MPF_LINES = {
     "0.80": ("Godot MC", True),
     "0.81": ("Godot MC", True),
 }
+# Image variants (IMAGE_VARIANT in scripts/image-name.sh) -> the product name
+# Imager shows. "dev" is PinbOS Dev, the desktop development image.
+VARIANTS = {
+    "game": "PinbOS",
+    "dev": "PinbOS Dev",
+}
+# Order within one release and board: the game images first, then PinbOS Dev.
+VARIANT_ORDER = ["game", "dev"]
+
 # Manifests from releases made before the MPF line was recorded in them
 # (v0.3.0 and earlier) were all 0.57.
 LEGACY_MPF_LINE = "0.57"
@@ -87,8 +96,15 @@ def mpf_label(mpf, mpf_version=None):
 
 
 def default_description(model, mpf, godot_version=None, mpf_version=None,
-                        python_version=None):
+                        python_version=None, variant="game"):
     mc, ships_godot = MPF_LINES[mpf]
+    if variant == "dev":
+        godot = f"the Godot {godot_version} editor" if godot_version else "the Godot editor"
+        return (
+            f"Raspberry Pi desktop for learning MPF {mpf_version or mpf} with the {mc}"
+            f" on a {MODELS[model][1]}: {godot}, VS Code and a sample game in"
+            " ~/mpf-project (rpi-pinball project)"
+        )
     # Callers may pass the pin unconditionally; it only means something for
     # a line that actually ships Godot.
     if godot_version and ships_godot:
@@ -103,12 +119,15 @@ def default_description(model, mpf, godot_version=None, mpf_version=None,
     )
 
 
-def default_name(model, mpf, version=None, mpf_version=None):
+def default_name(model, mpf, version=None, mpf_version=None, variant="game"):
     human = MODELS[model][1]
     label = mpf_label(mpf, mpf_version)
+    if variant == "dev":
+        label = f"{label} \u00b7 Desktop"
+    product = VARIANTS[variant]
     if version:
-        return f"{DEFAULT_NAME} {version} \u00b7 {label} ({human})"
-    return f"{DEFAULT_NAME} \u00b7 {label} ({human})"
+        return f"{product} {version} \u00b7 {label} ({human})"
+    return f"{product} \u00b7 {label} ({human})"
 
 
 def _model_rank(entry):
@@ -148,6 +167,13 @@ def _release_rank(entry):
     return tuple(int(p) for p in m.groups()) if m else ()
 
 
+def _variant_rank(entry):
+    """Position of an entry's variant in VARIANT_ORDER; older manifests,
+    which predate variants, are game images."""
+    variant = entry.get("variant", "game")
+    return VARIANT_ORDER.index(variant) if variant in VARIANT_ORDER else len(VARIANT_ORDER)
+
+
 def _mpf_rank(entry):
     """Sortable form of the MPF line: 0.80 -> (0, 80)."""
     try:
@@ -168,7 +194,8 @@ def sha256_and_size(path):
 
 def build_entry(img, url, model, mpf, xz=None, name=None, description=None,
                 release_date=None, website=None, version=None,
-                godot_version=None, mpf_version=None, python_version=None):
+                godot_version=None, mpf_version=None, python_version=None,
+                variant="game"):
     if mpf_version and not mpf_version.startswith(mpf + "."):
         raise SystemExit(f"--mpf-version {mpf_version} is not in MPF line {mpf}")
     extract_sha, extract_size = sha256_and_size(img)
@@ -177,9 +204,9 @@ def build_entry(img, url, model, mpf, xz=None, name=None, description=None,
     else:
         dl_sha, dl_size = extract_sha, extract_size
     return {
-        "name": name or default_name(model, mpf, version, mpf_version),
+        "name": name or default_name(model, mpf, version, mpf_version, variant),
         "description": description or default_description(
-            model, mpf, godot_version, mpf_version, python_version),
+            model, mpf, godot_version, mpf_version, python_version, variant),
         "icon": "",
         "url": url,
         "extract_size": extract_size,
@@ -197,21 +224,23 @@ def build_entry(img, url, model, mpf, xz=None, name=None, description=None,
         # order a release's entries without parsing names.
         "mpf_line": mpf,
         "mpf_version": mpf_version or mpf,
+        "variant": variant,
     }
 
 
 def build_repo(entries, icon=None):
     # Newest release first -- by date, then by version, since two releases
     # can share a UTC date -- then the models in MODEL_ORDER (negated so
-    # reverse=True still puts pi5 ahead of pi4), and within a model the
-    # newest MPF line first. Imager filters by board, so a
+    # reverse=True still puts pi5 ahead of pi4), then the game images ahead
+    # of PinbOS Dev (VARIANT_ORDER, negated the same way), and within those
+    # the newest MPF line first. Imager filters by board, so a
     # Pi 5 user sees each release's MPF 0.80 entry directly above its 0.57
     # one. Sorting on name instead would interleave releases. Imager displays
     # entries in document order.
     entries = sorted(
         entries,
         key=lambda e: (e.get("release_date", ""), _release_rank(e),
-                       -_model_rank(e), _mpf_rank(e)),
+                       -_model_rank(e), -_variant_rank(e), _mpf_rank(e)),
         reverse=True,
     )
     if icon is not None:
@@ -233,7 +262,8 @@ def write_json(obj, out):
 def cmd_entry(a):
     entry = build_entry(a.img, a.url, a.model, a.mpf, a.xz, a.name,
                         a.description, a.release_date, a.website, a.version,
-                        a.godot_version, a.mpf_version, a.python_version)
+                        a.godot_version, a.mpf_version, a.python_version,
+                        a.variant)
     # Always a full document, never a bare entry: without the imager.devices
     # block Imager's hardware filter drops the entry and the list is empty.
     write_json(build_repo([entry]), a.output)
@@ -251,13 +281,15 @@ def cmd_repo(a):
 
 def cmd_local(a):
     img = os.path.abspath(a.img)
+    build = "dev build" if a.variant == "game" else "local build"
     entry = build_entry(
         img, "file://" + img, a.model, a.mpf,
-        name=a.name or (f"{DEFAULT_NAME} (dev build, {mpf_label(a.mpf, a.mpf_version)}, "
+        name=a.name or (f"{VARIANTS[a.variant]} ({build}, {mpf_label(a.mpf, a.mpf_version)}, "
                         f"{MODELS[a.model][1]})"),
-        description=(f"{default_description(a.model, a.mpf, a.godot_version, a.mpf_version, a.python_version)}"
+        description=(f"{default_description(a.model, a.mpf, a.godot_version, a.mpf_version, a.python_version, a.variant)}"
                      f" -- {os.path.basename(img)}"),
         mpf_version=a.mpf_version,
+        variant=a.variant,
     )
     write_json(build_repo([entry]), a.output)
 
@@ -280,6 +312,8 @@ def main(argv=None):
                    help="exact MPF version in the image (e.g. 0.81.0), shown in the name")
     e.add_argument("--python-version",
                    help="Python version of the MPF venv, shown in the description")
+    e.add_argument("--variant", choices=VARIANT_ORDER, default="game",
+                   help="image variant: game (default) or dev (PinbOS Dev desktop image)")
     e.add_argument("--version", help="version shown in the entry name, e.g. v0.3.0")
     e.add_argument("--name")
     e.add_argument("--description")
@@ -305,6 +339,8 @@ def main(argv=None):
                    help="exact MPF version in the image (e.g. 0.81.0), shown in the name")
     l.add_argument("--python-version",
                    help="Python version of the MPF venv, shown in the description")
+    l.add_argument("--variant", choices=VARIANT_ORDER, default="game",
+                   help="image variant: game (default) or dev (PinbOS Dev desktop image)")
     l.add_argument("--name")
     l.add_argument("-o", "--output")
     l.set_defaults(func=cmd_local)

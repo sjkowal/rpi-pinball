@@ -15,6 +15,8 @@ Build a Raspberry Pi image with [Mission Pinball Framework](https://missionpinba
 
 Supports the **Raspberry Pi 4** and **Raspberry Pi 5**. One build targets one board and one MPF version; each release carries all eight combinations. (A Pi 3 would work the same way but is not supported yet — see *Adding a Pi model* below.)
 
+Each release also carries **PinbOS Dev**: a Raspberry Pi desktop image for learning MPF and Godot on the Pi itself, with the Godot editor, VS Code and a sample game. It's built for the Pi 5 with MPF 0.81 only. See *[PinbOS Dev](#pinbos-dev-desktop-image-for-learning)* below.
+
 Forked from [rpi-image-gen-example](https://github.com/jonnymacs/rpi-image-gen-example), which wraps Raspberry Pi Foundation's [rpi-image-gen](https://github.com/raspberrypi/rpi-image-gen).
 
 ## Install a released image (Raspberry Pi Imager)
@@ -42,6 +44,7 @@ You can also download the `.img.xz` directly and use Imager's "Use custom", but 
 ./build.sh pi4          # Pi 4, MPF 0.57.6
 ./build.sh pi5 0.58     # Pi 5, MPF 0.58.0 + mpf-mc
 ./build.sh pi5 0.81     # Pi 5, MPF 0.81.0 + Godot MC, Python 3.14
+./build.sh pi5 0.81 dev # PinbOS Dev: the desktop development image
 ```
 
 One run builds one board with one MPF line. The second argument is the line (major.minor), and the exact version comes from that line's config. The output image lands in `pinball/deploy/` (uncompressed, gitignored), named the same way as a release asset but with the version from `git describe`:
@@ -60,7 +63,7 @@ To flash it with Imager *and* get the Customisation step, generate a local manif
 
 Knobs:
 
-- `PI_MODEL=pi4 MPF_VERSION=0.81 ./build.sh` — same as passing the model and MPF line as arguments. Despite its name, `MPF_VERSION` takes the line (`0.81`), not the exact version.
+- `PI_MODEL=pi4 MPF_VERSION=0.81 IMAGE_VARIANT=dev ./build.sh` — same as passing the model, MPF line and variant as arguments. The variant is `game` (the default) or `dev`. Despite its name, `MPF_VERSION` takes the line (`0.81`), not the exact version.
 - `RPI_IMAGE_OUT_DIR` / `RPI_IMAGE_OUT_NAME` — override the output location and filename outright (CI uses these).
 - `scripts/image-name.sh <model> [version]` (with `MPF_VERSION=` for the line) prints the basename a build would use, without building anything. It refuses a line that isn't supported, or whose config's `mpf.version` disagrees with it.
 - `scripts/image-name.sh --mpf-version 0.81` and `--python-version 0.81` print a line's exact MPF and Python versions.
@@ -81,13 +84,15 @@ Knobs:
 
 Four edits: a new `pinball/pinball-mpf<NN>.yaml` (copy an existing one of the same family; set `mpf.version`, quoted, `layer.mc`, and for a GMC line `python_version` and `python_build`), `MPF_LINES` in `scripts/image-name.sh`, the `MPF_LINES` table in `imager/gen-os-list.py` (the media-controller name Imager shows, and whether the line ships Godot), and the `mpf` list in the CI matrix in `.github/workflows/build-image.yml`.
 
+To also build PinbOS Dev for the new line: a `pinball/pinball-dev-mpf<NN>.yaml` (copy `pinball-dev-mpf81.yaml`), `DEV_MPF_LINES` in `scripts/image-name.sh`, and an `include:` leg with `variant: dev` in the CI matrix.
+
 ### Adding a Pi model
 
 Two edits: `MODELS` in `scripts/image-name.sh`, and the `MODELS` table in `imager/gen-os-list.py` (which also needs the human name Imager shows). The model maps to upstream's device layer by name — `pi4` → `rpi4` — and `build.sh` passes it as `IGconf_device_layer`, so nothing in `pinball/pinball.yaml` changes. Add the model to the CI matrix in `.github/workflows/build-image.yml` to have releases include it (for every MPF line).
 
 ## Releases (CI)
 
-`.github/workflows/build-image.yml` builds on GitHub-hosted `ubuntu-24.04-arm` runners using the same `Dockerfile` and `build.sh` as a local build, compresses with `xz -T0`, hashes, and publishes. It runs as four jobs: `prepare` (resolve the version, run the release guard once), `build` (a matrix leg per board × MPF line — four, in parallel, each on its own runner), `release` (collect every leg's assets and publish the GitHub Release exactly once — publishing from inside the matrix would have the legs racing on `generate_release_notes`), and `publish` (regenerate the Imager repo).
+`.github/workflows/build-image.yml` builds on GitHub-hosted `ubuntu-24.04-arm` runners using the same `Dockerfile` and `build.sh` as a local build, compresses with `xz -T0`, hashes, and publishes. It runs as four jobs: `prepare` (resolve the version, run the release guard once), `build` (a matrix leg per board × MPF line, plus one for PinbOS Dev — nine, in parallel, each on its own runner), `release` (collect every leg's assets and publish the GitHub Release exactly once — publishing from inside the matrix would have the legs racing on `generate_release_notes`), and `publish` (regenerate the Imager repo).
 
 - **Release**: `git tag v1.0.0 && git push origin v1.0.0`. Creates a GitHub Release with the assets above, then regenerates and deploys the Imager repository.
 - **Prerelease**: a tag containing `-` (e.g. `v1.0.0-rc1`) builds and publishes a release marked *prerelease*, but is **not** listed in the Imager repository.
@@ -103,7 +108,37 @@ Two edits: `MODELS` in `scripts/image-name.sh`, and the `MODELS` table in `image
 2. **Settings → Environments → `github-pages` → Deployment branches and tags**: add a tag rule `v*`. The default policy only allows `main`, which blocks the tag-triggered deploy.
 3. **Settings → Actions → General → Workflow permissions**: *Read and write* (the workflows also declare explicit `permissions:`).
 
-Builds take roughly 30–60 minutes on the hosted arm64 runner; all eight images build in parallel, so a release takes about as long as one image. Everything here is free on a public repository: standard hosted runner minutes are unmetered, release assets have no total storage or bandwidth cap (2 GiB per file), and Pages is free (soft limit 100 GB/month, only the JSON and icon are served from it).
+Builds take roughly 30–60 minutes on the hosted arm64 runner; all nine images build in parallel, so a release takes about as long as one image. Everything here is free on a public repository: standard hosted runner minutes are unmetered, release assets have no total storage or bandwidth cap (2 GiB per file), and Pages is free (soft limit 100 GB/month, only the JSON and icon are served from it).
+
+## PinbOS Dev (desktop image for learning)
+
+PinbOS Dev is a separate image for someone starting out with MPF and the Godot Media Controller. Everything happens on the Pi with a screen, keyboard and mouse; no second computer is needed. In Imager it's listed as **PinbOS Dev vX.Y.Z · MPF 0.81.0 · Godot MC · Desktop (Raspberry Pi 5)**, and the asset names start with `pinbos-dev-` (e.g. `pinbos-dev-mpf0.81.0-rpi5-v0.9.0.img.xz`).
+
+**What's on it:**
+- **Desktop:** the Raspberry Pi OS desktop (labwc on Wayland, its panel, menu and Control Centre), Chromium, a terminal, a text editor and PipeWire sound. It boots straight to the desktop, logged in as the user you set in Imager.
+- **The same MPF stack as the 0.81 game image:** MPF 0.81.0 on Python 3.14, Godot 4.7.2 with `gmc-run`, and P-ROC/P3-ROC support.
+- **The sample game** in `~/mpf-project`, as on the GMC game images (*The MPF project folder* above).
+- **VS Code** (`code`) and git.
+- **Desktop and menu launchers:**
+  - *Run Pinball Game*: `gmc-run ~/mpf-project` in a terminal. The game opens in a window.
+  - *Edit Game in Godot*: the Godot editor on `~/mpf-project`.
+  - *Edit Game in VS Code*.
+  - *Godot Engine* (the project manager), *MPF & GMC Documentation* and *Welcome to PinbOS Dev*.
+- **A welcome page** that opens at the first login, explaining how to run, change and take over the sample. Reopen it from the menu.
+
+**How it differs from the game images:**
+- **Writable root.** It's a normal two-partition layout like Raspberry Pi OS, with a 512 MB boot partition. The root grows to fill the card on first boot, and `apt` and `pip` just work. There's no `pinball-rw`/`pinball-ro`, no DATA partition, and no protection against power cuts.
+- **No MPF at boot.** There's no `mpf.service` or `pinball-autostart`, so nothing fights the desktop for the screen.
+- **No boot-time trims and no eth0 fallback address.** NetworkManager manages both Ethernet and WiFi, so the panel's network menu works.
+- **Pi 5, MPF 0.81 only.** The editor and a desktop need the Pi 5.
+
+When the game is ready, flash the matching game image (MPF 0.81.0 · Godot MC) to the machine and `git clone` the project onto it.
+
+**How it's built:** `pinball/pinball-dev-mpf81.yaml` includes `pinball/pinball-dev.yaml`, a separate base from the game images' `pinball.yaml`. The base reuses the `pinball-mpf`, `pinball-proc`, `pinball-gmc`, `pinball-sample` and `pinball-networkmanager` layers, and adds:
+- `pinball/image/pinball-dev-rpios/`: the two-partition, read-write layout (a copy of the game layout without DATA);
+- `pinball-dev-firstboot`: grows ROOT, applies any deferred Imager preseed, and sets the autologin user;
+- `pinball-desktop`;
+- `pinball-devtools`, with its assets in `pinball/assets/dev/`.
 
 ## What's on the image
 

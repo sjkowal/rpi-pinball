@@ -6,6 +6,7 @@
 # exactly once.
 #
 #   pinbos-mpf<MPF version>-rpi<N>-<VERSION>     e.g. pinbos-mpf0.81.0-rpi5-v0.8.0
+#   pinbos-dev-mpf<MPF version>-rpi<N>-<VERSION> the PinbOS Dev desktop image
 #
 # <MPF version> is the exact release the image contains (major.minor.patch),
 # read from the line's config; the line (major.minor, e.g. 0.81) selects that
@@ -15,7 +16,9 @@
 # .img.xz.sha256 or .manifest.json as needed.
 #
 # Usage
-#   scripts/image-name.sh --models                 -> pi4 pi5
+#   scripts/image-name.sh --variants               -> game dev
+#   scripts/image-name.sh --variant                -> game (validated $IMAGE_VARIANT)
+#   scripts/image-name.sh --models                 -> pi4 pi5 (pi5 for dev)
 #   scripts/image-name.sh --mpf-lines              -> 0.57 0.58 0.80 0.81
 #   scripts/image-name.sh --mpf-line [0.81]         -> 0.81 (validated; default line if omitted)
 #   scripts/image-name.sh --mpf-version [0.81]      -> 0.81.0 (exact version in the line's config)
@@ -26,8 +29,13 @@
 #   scripts/image-name.sh pi5                       -> pinbos-mpf0.57.6-rpi5-v0.8.0-3-gabc1234
 #   scripts/image-name.sh pi5 v0.8.0                -> pinbos-mpf0.57.6-rpi5-v0.8.0
 #   MPF_VERSION=0.81 scripts/image-name.sh pi4 v0.8.0 -> pinbos-mpf0.81.0-rpi4-v0.8.0
+#   IMAGE_VARIANT=dev scripts/image-name.sh pi5 v0.9.0 -> pinbos-dev-mpf0.81.0-rpi5-v0.9.0
 #
 # Environment
+#   IMAGE_VARIANT   which image: `game` (default; the pinball appliance,
+#                   pinball/pinball-mpf<NN>.yaml) or `dev` (PinbOS Dev, the
+#                   desktop development image, pinball/pinball-dev-mpf<NN>.yaml).
+#                   Each variant has its own models and MPF lines
 #   MPF_VERSION     which MPF release line, major.minor (default
 #                   $DEFAULT_MPF). Selects the per-line config
 #                   pinball/pinball-mpf<NN>.yaml, whose exact `mpf.version`
@@ -52,6 +60,15 @@ MODELS="pi4 pi5"
 MPF_LINES="0.57 0.58 0.80 0.81"
 DEFAULT_MPF="0.57"
 
+# Image variants. `dev` is the PinbOS Dev desktop image: its own models and
+# lines (a subset of the game ones), its own configs
+# (pinball/pinball-dev-mpf<NN>.yaml, which include pinball/pinball-dev.yaml)
+# and its own product name. The game variant's names are unchanged.
+VARIANTS="game dev"
+DEV_MODELS="pi5"
+DEV_MPF_LINES="0.81"
+DEV_DEFAULT_MPF="0.81"
+
 PRODUCT="pinbos"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -60,8 +77,27 @@ GMC_LAYER="$ROOT/pinball/layer/pinball-gmc.yaml"
 
 die() { echo "image-name.sh: $*" >&2 ; exit 1 ; }
 
+# The requested variant, validated: $IMAGE_VARIANT, default game.
+variant() {
+  local v="${IMAGE_VARIANT:-game}" c
+  for c in $VARIANTS; do
+    [ "$c" = "$v" ] && { echo "$v"; return 0; }
+  done
+  die "unsupported IMAGE_VARIANT '$v' (supported: $VARIANTS)"
+}
+# Exits here (not just in a subshell) on a bad IMAGE_VARIANT.
+VARIANT="$(variant)" || exit 1
+if [ "$VARIANT" = dev ]; then
+  MODELS="$DEV_MODELS"
+  MPF_LINES="$DEV_MPF_LINES"
+  DEFAULT_MPF="$DEV_DEFAULT_MPF"
+  PRODUCT="pinbos-dev"
+fi
+
 usage() {
   echo "Usage: $0 <model> [version]" >&2
+  echo "       $0 --variants" >&2
+  echo "       $0 --variant" >&2
   echo "       $0 --models" >&2
   echo "       $0 --mpf-lines" >&2
   echo "       $0 --mpf-line [mpf line]" >&2
@@ -70,6 +106,7 @@ usage() {
   echo "       $0 --device-layer <model>" >&2
   echo "       $0 --config [mpf line]" >&2
   echo "       $0 --godot-version" >&2
+  echo "Variant: $VARIANT (of: $VARIANTS; IMAGE_VARIANT= selects)" >&2
   echo "Supported models: $MODELS" >&2
   echo "Supported MPF lines: $MPF_LINES (default $DEFAULT_MPF; MPF_VERSION= selects)" >&2
 }
@@ -79,7 +116,7 @@ validate_model() {
   for m in $MODELS; do
     [ "$m" = "$candidate" ] && return 0
   done
-  die "unsupported model '$candidate' (supported: $MODELS)"
+  die "unsupported model '$candidate' for the $VARIANT image (supported: $MODELS)"
 }
 
 # The upstream rpi-image-gen device layer for a model: pi4 -> rpi4.
@@ -90,7 +127,7 @@ validate_mpf() {
   for l in $MPF_LINES; do
     [ "$l" = "$candidate" ] && return 0
   done
-  die "unsupported MPF line '$candidate' (supported: $MPF_LINES)"
+  die "unsupported MPF line '$candidate' for the $VARIANT image (supported: $MPF_LINES)"
 }
 
 # The requested MPF line: explicit argument, then $MPF_VERSION, then default.
@@ -100,8 +137,15 @@ requested_mpf() {
   echo "$v"
 }
 
-# Per-line config basename, relative to pinball/: 0.80 -> pinball-mpf80.yaml.
-config_for() { echo "pinball-$(mpf_token "$1").yaml"; }
+# Per-line config basename, relative to pinball/: 0.80 -> pinball-mpf80.yaml,
+# or pinball-dev-mpf81.yaml for the dev variant.
+config_for() {
+  if [ "$VARIANT" = dev ]; then
+    echo "pinball-dev-$(mpf_token "$1").yaml"
+  else
+    echo "pinball-$(mpf_token "$1").yaml"
+  fi
+}
 
 # A value from the top-level `mpf:` section of a line's config, quotes and
 # trailing comments stripped; empty if absent.
@@ -205,6 +249,14 @@ resolve_version() {
 }
 
 case "${1:-}" in
+  --variants)
+    echo "$VARIANTS"
+    exit 0
+    ;;
+  --variant)
+    echo "$VARIANT"
+    exit 0
+    ;;
   --models)
     echo "$MODELS"
     exit 0

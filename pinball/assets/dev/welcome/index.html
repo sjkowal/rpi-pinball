@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Welcome to PinbOS Dev</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --fg: #1d1d1f; --muted: #5b5b60; --card: #ffffff;
+    --line: #e2e2de; --accent: #b4235a; --code-bg: #f0efeb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171a; --fg: #ececee; --muted: #a3a3ab; --card: #212125;
+      --line: #34343a; --accent: #ff7aa8; --code-bg: #2a2a2f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.55 "Piboto", "Roboto", system-ui, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 2rem; margin: 0 0 4px; }
+  h2 { font-size: 1.25rem; margin: 0 0 8px; }
+  .lede { color: var(--muted); margin: 0 0 28px; }
+  section {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 18px 22px; margin: 0 0 16px;
+  }
+  ol, ul { padding-left: 1.3em; margin: 6px 0; }
+  li { margin: 4px 0; }
+  code, pre {
+    font-family: "DejaVu Sans Mono", ui-monospace, monospace; font-size: 0.92em;
+    background: var(--code-bg); border-radius: 5px;
+  }
+  code { padding: 1px 5px; }
+  pre { padding: 10px 12px; overflow-x: auto; margin: 8px 0; }
+  a { color: var(--accent); }
+  .k { font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; }
+  td { border-top: 1px solid var(--line); padding: 6px 8px 6px 0; vertical-align: top; }
+  td:first-child { white-space: nowrap; }
+  .foot { color: var(--muted); font-size: 0.9em; margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Welcome to PinbOS Dev</h1>
+  <p class="lede">A Raspberry Pi set up for learning to build pinball games with the
+    Mission Pinball Framework (MPF @MPF_VERSION@) and the Godot Media Controller
+    (Godot @GODOT_VERSION@). Everything runs on this Pi; you don't need another computer.</p>
+
+  <section>
+    <h2>1. Run the sample game</h2>
+    <p>A small sample game is already in your home folder at <code>~/mpf-project</code>.
+      It needs no pinball hardware.</p>
+    <ol>
+      <li>Double-click <span class="k">Run Pinball Game</span> on the desktop
+        (or find it in the menu under <em>Games</em>).</li>
+      <li>A terminal opens with MPF's text display, and a Godot window shows the attract-mode slide.</li>
+      <li>To stop, close the game window, or press <code>Ctrl+C</code> in the terminal.</li>
+    </ol>
+    <p>From a terminal it's the same thing: <code>cd ~/mpf-project &amp;&amp; gmc-run</code>.</p>
+  </section>
+
+  <section>
+    <h2>2. Change it</h2>
+    <table>
+      <tr><td class="k">Machine &amp; rules</td>
+        <td>MPF's YAML config: <code>config/config.yaml</code> and <code>modes/*/config/*.yaml</code>.
+          Open the folder with <span class="k">Edit Game in VS Code</span>.</td></tr>
+      <tr><td class="k">Screens &amp; sound</td>
+        <td>Godot scenes in <code>slides/</code>, sounds in <code>sounds/</code>.
+          Open the project with <span class="k">Edit Game in Godot</span>.</td></tr>
+    </table>
+    <p>Save, then run the game again. <code>gmc-run</code> re-imports any images, sounds or fonts
+      you added or changed before it starts.</p>
+  </section>
+
+  <section>
+    <h2>3. Make it your own game</h2>
+    <p><code>~/mpf-project</code> is a git clone of
+      <a href="https://github.com/sjkowal/mpf-sample">sjkowal/mpf-sample</a>.
+      Make a copy of that repository on GitHub, then point this folder at it:</p>
+<pre>cd ~/mpf-project
+git remote set-url origin https://github.com/&lt;you&gt;/&lt;your-game&gt;.git
+git push -u origin main</pre>
+    <p>Or start from someone else's project: <code>rm -rf ~/mpf-project &amp;&amp; git clone &lt;repo&gt; ~/mpf-project</code>.</p>
+  </section>
+
+  <section>
+    <h2>Good to know</h2>
+    <ul>
+      <li><span class="k">Use Godot @GODOT_VERSION@</span> if you also edit on another computer.
+        A project saved by a newer Godot may not open here.</li>
+      <li><span class="k">Use MSDF fonts.</span> On a Pi 5, Godot's default font setup draws text with
+        pieces missing. The sample already has it on: <em>Project Settings → GUI → Theme →
+        Default Font Multichannel Signed Distance Field</em>, and tick <em>Multichannel Signed
+        Distance Field</em> on each font in the Import dock.</li>
+      <li><span class="k">Use the Mobile or Compatibility renderer.</span> Video must be OGG Theora,
+        and the Pi decodes it slowly.</li>
+      <li><span class="k">MPF</span> is installed in <code>/opt/mpf/venv</code>; <code>mpf</code> and
+        <code>pip</code> are on your <code>PATH</code> in a terminal.</li>
+      <li><span class="k">Real hardware:</span> P-ROC and P3-ROC drivers are installed. Add your
+        board to <code>config/config.yaml</code> as MPF's docs describe.</li>
+      <li><span class="k">This is a development image.</span> When the game is finished, flash a
+        PinbOS game image (MPF @MPF_VERSION@ · Godot MC) to the machine. That image has a
+        read-only system, so a power cut can't break it, and it can start the game at power-on.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Learn more</h2>
+    <ul>
+      <li><a href="https://missionpinball.org/latest/">Mission Pinball Framework documentation</a></li>
+      <li><a href="https://missionpinball.org/latest/gmc/">Godot Media Controller (GMC) guide</a></li>
+      <li><a href="https://docs.godotengine.org/en/stable/getting_started/introduction/">Getting started with Godot</a></li>
+      <li><a href="https://github.com/sjkowal/rpi-pinball">rpi-pinball</a>, the project that builds this image</li>
+    </ul>
+  </section>
+
+  <p class="foot">Open this page again from the menu: <em>Welcome to PinbOS Dev</em>.
+    Sample game commit <code>@SAMPLE_REF@</code>.</p>
+</main>
+</body>
+</html>

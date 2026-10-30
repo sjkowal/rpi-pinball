@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Edit Game in Godot
+Comment=Open the MPF project folder (~/mpf-project) in the Godot editor
+Exec=bash -lc 'exec godot -e --path "$HOME/mpf-project"'
+Icon=/usr/share/pinball/icons/godot.svg
+Terminal=false
+Categories=Development;Game;
