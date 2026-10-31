@@ -130,6 +130,7 @@ PinbOS Dev is a separate image for someone starting out with MPF and the Godot M
 - **Writable root.** It's a normal two-partition layout like Raspberry Pi OS, with a 512 MB boot partition. The root grows to fill the card on first boot, and `apt` and `pip` just work. There's no `pinball-rw`/`pinball-ro`, no DATA partition, and no protection against power cuts.
 - **No MPF at boot.** There's no `mpf.service` or `pinball-autostart`, so nothing fights the desktop for the screen.
 - **No boot-time trims and no eth0 fallback address.** NetworkManager manages both Ethernet and WiFi, so the panel's network menu works.
+- **Swap in RAM.** zram swap at half the RAM, compressed with zstd, so the editor, VS Code and Chromium together don't run out of memory. It never writes to the card. The game images have no swap.
 - **Pi 5, MPF 0.81 only.** The editor and a desktop need the Pi 5.
 
 When the game is ready, flash the matching game image (MPF 0.81.0 · Godot MC) to the machine and `git clone` the project onto it.
@@ -139,6 +140,7 @@ When the game is ready, flash the matching game image (MPF 0.81.0 · Godot MC) t
 - `pinball-dev-firstboot`: grows ROOT, applies any deferred Imager preseed, and sets the autologin user;
 - `pinball-desktop`;
 - `pinball-devtools`, with its assets in `pinball/assets/dev/`.
+- `pinball-dev-swap`: zram swap.
 
 ## What's on the image
 

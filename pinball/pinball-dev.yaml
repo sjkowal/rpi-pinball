@@ -60,6 +60,8 @@ layer:
   desktop: pinball-desktop
   # VS Code, launchers, the welcome page.
   devtools: pinball-devtools
+  # zram swap (compressed, in RAM). The game images have no swap.
+  swap: pinball-dev-swap
   # Deliberately absent (they belong to the game appliance):
   # pinball-readonly-root, pinball-boot-time, pinball-mpf-service (MPF at
   # boot would fight the desktop for the display), pinball-net-fallback,

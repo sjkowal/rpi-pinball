@@ -1,0 +1,32 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-dev-swap
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: Compressed swap in RAM (zram) for the PinbOS Dev image,
+#  so the Godot editor, VS Code and Chromium open together don't run the
+#  desktop out of memory. systemd-zram-generator creates /dev/zram0 at
+#  every boot (dev-zram0.swap), sized at half the RAM and compressed with
+#  zstd. It never writes to the SD card, so there's no card wear or slow
+#  disk swapping. The game images keep no swap at all.
+# X-Env-Layer-Version: 1.0.0
+# METAEND
+---
+mmdebstrap:
+  packages:
+    - systemd-zram-generator
+  customize-hooks:
+    - |-
+      set -eu
+      mkdir -p $1/etc/systemd
+      cat <<EOF > $1/etc/systemd/zram-generator.conf
+      [zram0]
+      zram-size = ram / 2
+      compression-algorithm = zstd
+      EOF
+      # zram is much cheaper than dropping and re-reading file cache from
+      # the SD card, so let the kernel swap to it readily.
+      mkdir -p $1/etc/sysctl.d
+      echo 'vm.swappiness = 100' > $1/etc/sysctl.d/90-pinball-zram.conf
+      # Fail the build, not the first boot, if the generator isn't where
+      # systemd looks for it.
+      [ -x $1/usr/lib/systemd/system-generators/zram-generator ] \
+        || { echo "pinball-dev-swap: zram-generator not installed" >&2; exit 1; }
