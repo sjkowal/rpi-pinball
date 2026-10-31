@@ -7,11 +7,12 @@
 # itself: the Raspberry Pi desktop, a normal writable root that grows to fill
 # the card, the Godot editor, VS Code and the mpf-sample game. Settings that
 # both share are copied from pinball.yaml, which has the full reasoning.
-# `./build.sh pi5 0.81 dev` builds it.
+# `./build.sh pi5 0.81 dev` (or pi4) builds it.
 
 device:
-  # Pi 5 only (DEV_MODELS in scripts/image-name.sh). build.sh still passes
-  # IGconf_device_layer, as for the game images.
+  # DEFAULT ONLY, as in pinball.yaml: build.sh overrides it with
+  # IGconf_device_layer=rpi4 for `./build.sh pi4 0.81 dev`. Pi 4 and Pi 5
+  # (DEV_MODELS in scripts/image-name.sh).
   layer: rpi5
   hostname: pinball
   # Locked UID-1000 placeholder that Raspberry Pi Imager's OS Customisation

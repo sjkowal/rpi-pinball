@@ -20,7 +20,7 @@
 #   ./imager-repo.sh 0.81            # newest MPF 0.81 build of each model
 #   ./imager-repo.sh pi4 0.81        # newest pi4 MPF 0.81 game build only
 #   ./imager-repo.sh dev             # newest PinbOS Dev build(s) only
-#   ./imager-repo.sh pinball/deploy/pinbos-mpf0.57.6-rpi4-v0.8.0.img
+#   ./imager-repo.sh pinball/deploy/pinbos-mpf0.58.0-rpi4-v0.9.0.img
 #
 # Thin wrapper: the manifest shape itself lives in imager/gen-os-list.py,
 # shared with the hosted repo published by CI (see README "Releases").
@@ -94,7 +94,7 @@ model_of() {
   echo "pi$n"
 }
 
-# 0.80 -> 80: the mpf<NN> token in image names before v0.8.0.
+# 0.81 -> 81: the mpf<NN> token in image names before v0.8.0.
 mpf_digits() { printf '%s' "${1#0.}" | tr -d '.'; }
 
 # The exact MPF version in an image name (pinbos-mpf0.81.0-rpi5-...), or

@@ -18,18 +18,18 @@
 # Usage
 #   scripts/image-name.sh --variants               -> game dev
 #   scripts/image-name.sh --variant                -> game (validated $IMAGE_VARIANT)
-#   scripts/image-name.sh --models                 -> pi4 pi5 (pi5 for dev)
-#   scripts/image-name.sh --mpf-lines              -> 0.57 0.58 0.80 0.81
+#   scripts/image-name.sh --models                 -> pi4 pi5
+#   scripts/image-name.sh --mpf-lines              -> 0.58 0.81 (0.81 for dev)
 #   scripts/image-name.sh --mpf-line [0.81]         -> 0.81 (validated; default line if omitted)
 #   scripts/image-name.sh --mpf-version [0.81]      -> 0.81.0 (exact version in the line's config)
 #   scripts/image-name.sh --python-version [0.81]   -> 3.14.10 (empty: Debian's python3)
 #   scripts/image-name.sh --device-layer pi4        -> rpi4
 #   scripts/image-name.sh --config [0.81]           -> pinball-mpf81.yaml
 #   scripts/image-name.sh --godot-version           -> 4.7.2
-#   scripts/image-name.sh pi5                       -> pinbos-mpf0.57.6-rpi5-v0.8.0-3-gabc1234
-#   scripts/image-name.sh pi5 v0.8.0                -> pinbos-mpf0.57.6-rpi5-v0.8.0
+#   scripts/image-name.sh pi5                       -> pinbos-mpf0.58.0-rpi5-v0.9.0-3-gabc1234
+#   scripts/image-name.sh pi5 v0.9.0                -> pinbos-mpf0.58.0-rpi5-v0.9.0
 #   MPF_VERSION=0.81 scripts/image-name.sh pi4 v0.8.0 -> pinbos-mpf0.81.0-rpi4-v0.8.0
-#   IMAGE_VARIANT=dev scripts/image-name.sh pi5 v0.9.0 -> pinbos-dev-mpf0.81.0-rpi5-v0.9.0
+#   IMAGE_VARIANT=dev scripts/image-name.sh pi4 v0.9.0 -> pinbos-dev-mpf0.81.0-rpi4-v0.9.0
 #
 # Environment
 #   IMAGE_VARIANT   which image: `game` (default; the pinball appliance,
@@ -57,15 +57,15 @@ MODELS="pi4 pi5"
 # A LINE: that config file, this line, the MPF_LINES table in
 # imager/gen-os-list.py, and the CI matrix. The default is what a bare
 # ./build.sh builds.
-MPF_LINES="0.57 0.58 0.80 0.81"
-DEFAULT_MPF="0.57"
+MPF_LINES="0.58 0.81"
+DEFAULT_MPF="0.58"
 
 # Image variants. `dev` is the PinbOS Dev desktop image: its own models and
 # lines (a subset of the game ones), its own configs
 # (pinball/pinball-dev-mpf<NN>.yaml, which include pinball/pinball-dev.yaml)
 # and its own product name. The game variant's names are unchanged.
 VARIANTS="game dev"
-DEV_MODELS="pi5"
+DEV_MODELS="pi4 pi5"
 DEV_MPF_LINES="0.81"
 DEV_DEFAULT_MPF="0.81"
 
@@ -137,7 +137,7 @@ requested_mpf() {
   echo "$v"
 }
 
-# Per-line config basename, relative to pinball/: 0.80 -> pinball-mpf80.yaml,
+# Per-line config basename, relative to pinball/: 0.81 -> pinball-mpf81.yaml,
 # or pinball-dev-mpf81.yaml for the dev variant.
 config_for() {
   if [ "$VARIANT" = dev ]; then
@@ -214,7 +214,7 @@ godot_version() {
   echo "$v"
 }
 
-# Config-file token for a line: 0.57 -> mpf57, 0.81 -> mpf81 (so
+# Config-file token for a line: 0.58 -> mpf58, 0.81 -> mpf81 (so
 # pinball-mpf81.yaml). Strips a leading "0." then removes any remaining
 # dots. Note an eventual MPF 1.0 would render as mpf10, colliding with a
 # hypothetical 0.10 -- not a real concern, MPF's 0.x line is long past 0.10,

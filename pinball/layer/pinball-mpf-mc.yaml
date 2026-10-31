@@ -2,13 +2,13 @@
 # X-Env-Layer-Name: pinball-mpf-mc
 # X-Env-Layer-Category: app-misc
 # X-Env-Layer-Desc: The legacy Kivy/SDL2 media controller (mpf-mc) for the
-#  MPF 0.57 and 0.58 lines, installed into pinball-mpf's venv. Selected by
-#  pinball/pinball-mpf57.yaml and pinball-mpf58.yaml. MPF 0.80+ use the
+#  MPF 0.58 line, installed into pinball-mpf's venv. Selected by
+#  pinball/pinball-mpf58.yaml. MPF 0.81 uses the
 #  Godot Media Controller (pinball-gmc) instead.
 #
 #  There is no mpf-mc 0.58: the newest release, 0.57.1, requires
-#  "mpf >= 0.57.0" and serves both lines. It also requires Python < 3.12
-#  (Kivy 2.2.1), which is why these lines stay on Debian's Python 3.11.
+#  "mpf >= 0.57.0" and serves 0.58. It also requires Python < 3.12
+#  (Kivy 2.2.1), which is why this line stays on Debian's Python 3.11.
 # X-Env-Layer-Version: 2.0.0
 # X-Env-Layer-Requires: pinball-mpf
 #

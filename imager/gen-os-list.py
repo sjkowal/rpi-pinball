@@ -48,9 +48,7 @@ MODEL_ORDER = ["pi5", "pi4"]
 # scripts/image-name.sh, the line's pinball/pinball-mpf<NN>.yaml, and the CI
 # matrix.
 MPF_LINES = {
-    "0.57": ("mpf-mc", False),
     "0.58": ("mpf-mc", False),
-    "0.80": ("Godot MC", True),
     "0.81": ("Godot MC", True),
 }
 # Image variants (IMAGE_VARIANT in scripts/image-name.sh) -> the product name
@@ -63,7 +61,8 @@ VARIANTS = {
 VARIANT_ORDER = ["game", "dev"]
 
 # Manifests from releases made before the MPF line was recorded in them
-# (v0.3.0 and earlier) were all 0.57.
+# (v0.3.0 and earlier) were all 0.57. Only used to order entries from old
+# releases; 0.57 and 0.80 are no longer built (dropped in v0.9.0).
 LEGACY_MPF_LINE = "0.57"
 
 INIT_FORMAT = "rpi-preseed"
@@ -175,7 +174,7 @@ def _variant_rank(entry):
 
 
 def _mpf_rank(entry):
-    """Sortable form of the MPF line: 0.80 -> (0, 80)."""
+    """Sortable form of the MPF line: 0.81 -> (0, 81)."""
     try:
         return tuple(int(p) for p in _mpf_line_of(entry).split("."))
     except ValueError:
@@ -234,7 +233,7 @@ def build_repo(entries, icon=None):
     # reverse=True still puts pi5 ahead of pi4), then the game images ahead
     # of PinbOS Dev (VARIANT_ORDER, negated the same way), and within those
     # the newest MPF line first. Imager filters by board, so a
-    # Pi 5 user sees each release's MPF 0.80 entry directly above its 0.57
+    # Pi 5 user sees each release's MPF 0.81 entry directly above its 0.58
     # one. Sorting on name instead would interleave releases. Imager displays
     # entries in document order.
     entries = sorted(

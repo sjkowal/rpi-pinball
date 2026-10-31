@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   # Cheap, once per run: resolve the version and enforce the release guard
-  # before spending nine arm64 runners on it. The guard checks config files
+  # before spending six arm64 runners on it. The guard checks config files
   # shared by every leg, so running it per matrix leg would be redundant.
   prepare:
     runs-on: ubuntu-24.04
@@ -63,7 +63,7 @@ jobs:
       matrix:
         model: [pi4, pi5]
         # Quoted: unquoted YAML would read 0.80 as the float 0.8.
-        mpf: ['0.57', '0.58', '0.80', '0.81']
+        mpf: ['0.58', '0.81']
         # `variant` must be a matrix key for the include below to add a NEW
         # leg: an include whose keys all match an existing combination
         # (pi5, 0.81) and only adds a new key would be merged into that
@@ -71,6 +71,9 @@ jobs:
         variant: [game]
         include:
           # PinbOS Dev, the desktop development image.
+          - model: pi4
+            mpf: '0.81'
+            variant: dev
           - model: pi5
             mpf: '0.81'
             variant: dev

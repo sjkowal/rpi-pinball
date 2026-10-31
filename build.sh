@@ -25,7 +25,7 @@ export MPF_VERSION="${2:-${MPF_VERSION:-}}"
 usage() {
   echo "   Usage: $0 [$("$NAMER" --models | tr ' ' '|')] [$("$NAMER" --mpf-lines | tr ' ' '|')] [$(IMAGE_VARIANT= "$NAMER" --variants | tr ' ' '|')]"
   echo "   (defaults: pi5, MPF $(IMAGE_VARIANT= MPF_VERSION= "$NAMER" --mpf-line) and the game image; PI_MODEL= / MPF_VERSION= / IMAGE_VARIANT= also work)"
-  echo "   PinbOS Dev, the desktop image: $0 pi5 0.81 dev"
+  echo "   PinbOS Dev, the desktop image: $0 [pi4|pi5] 0.81 dev"
 }
 
 # (image-name.sh says what's wrong; usage() itself would fail the same way.)
@@ -40,7 +40,7 @@ if ! echo " $("$NAMER" --models) " | grep -q " ${PI_MODEL} "; then
   exit 2
 fi
 
-# The MPF line, and its config (pinball-mpf57.yaml, pinball-mpf80.yaml),
+# The MPF line, and its config (pinball-mpf58.yaml, pinball-mpf81.yaml),
 # which includes the shared pinball.yaml and sets mpf.version + the media
 # controller layer. image-name.sh validates the line and that the file's
 # mpf.version agrees with it.
@@ -61,8 +61,8 @@ RPI_DEVICE_LAYER="$("$NAMER" --device-layer "${PI_MODEL}")"
 # (.github/workflows/build-image.yml) can pin an exact release filename, while
 # a plain local `./build.sh` gets the same self-describing name derived from
 # the model, the MPF release line and `git describe`:
-#   pinball/deploy/pinbos-mpf0.57.6-rpi5-v0.8.0.img
-#   pinball/deploy/pinbos-mpf0.81.0-rpi4-v0.8.0.img   (./build.sh pi4 0.81)
+#   pinball/deploy/pinbos-mpf0.58.0-rpi5-v0.9.0.img
+#   pinball/deploy/pinbos-mpf0.81.0-rpi4-v0.9.0.img   (./build.sh pi4 0.81)
 RPI_IMAGE_OUT_DIR="${RPI_IMAGE_OUT_DIR:-./${RPI_CUSTOMIZATIONS_DIR}/deploy}"
 RPI_IMAGE_OUT_NAME="${RPI_IMAGE_OUT_NAME:-$("$NAMER" "${PI_MODEL}").img}"
 OUT="${RPI_IMAGE_OUT_DIR}/${RPI_IMAGE_OUT_NAME}"

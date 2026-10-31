@@ -884,3 +884,15 @@ A second image variant, built with `./build.sh pi5 0.81 dev` (`IMAGE_VARIANT=dev
 - **Autologin for whatever user Imager created.** Imager renames the UID-1000 placeholder at flash time by editing the partition directly. `userconf-pi`'s `userconf` doesn't touch lightdm. Its `cancel-rename` only re-applies `raspi-config`'s boot behaviour, and only when the rename went through its own wizard flow. So `pinball-dev-firstboot.sh` rewrites `autologin-user` to the UID-1000 name before `display-manager.service` starts.
 - **NetworkManager owns eth0 too.** On the game images it's scoped to wlan0, and systemd-networkd keeps eth0. The desktop's network applet only sees NetworkManager devices, so `pinball-desktop` removes the eth0 exclusion and gives `01-eth0.network` an `Unmanaged=yes` drop-in, mirroring what `pinball-networkmanager` does for wlan0. `systemd-net-min` stays installed because `bookworm-minbase` requires it.
 - **zram swap, unlike the game images.** The game images have no swap by design. A desktop running the Godot editor, VS Code and Chromium together can spike past RAM, so `pinball-dev-swap` adds `systemd-zram-generator` with `zram-size = ram / 2` and zstd, plus `vm.swappiness = 100`. zram rather than a swap file (`dphys-swapfile`, Raspberry Pi OS bookworm's choice): no SD card wear and no slow card I/O, and nothing to order after the first-boot ROOT growth.
+- **Pi 4 as well (added 2026-10-31).** It started out Pi 5 only. Nothing in the dev layers is board-specific: `device.layer: rpi5` in `pinball-dev.yaml` is a default that `build.sh` overrides with `IGconf_device_layer=rpi4`, as for the game images, and the layout, firstboot, desktop and swap layers don't name a board. The Pi 4 runs the same labwc desktop on Raspberry Pi OS bookworm. It's slower for the editor, VS Code and Chromium, so the README recommends 4 GB or more. `DEV_MODELS="pi4 pi5"`, and the CI matrix has a dev `include:` leg per board.
+
+## Two MPF lines: 0.57 and 0.80 dropped (2026-10-31)
+
+From v0.9.0 only **0.58.0** (mpf-mc) and **0.81.0** (GMC) are built, the newest feature release of each family. 0.57.6 and 0.80.1 were removed at the user's request:
+- `pinball/pinball-mpf57.yaml` and `pinball-mpf80.yaml` are deleted.
+- `MPF_LINES="0.58 0.81"` in `scripts/image-name.sh`. The default line for a bare `./build.sh` is now 0.58, 0.57's successor in the same family.
+- The CI matrix is `mpf: ['0.58', '0.81']`, so a release is four game images plus two PinbOS Dev images (pi4, pi5): six legs.
+- `MPF_LINES` in `imager/gen-os-list.py` drops them, so `--mpf 0.57`/`0.80` is refused for new entries. Older releases' 0.57 and 0.80 entries still appear in the hosted Imager list: `repo` passes manifests through without looking them up in that table, and `LEGACY_MPF_LINE` stays for ordering pre-v0.4 manifests.
+- `imager-repo.sh` ignores local 0.57/0.80 builds still lying in `pinball/deploy/`.
+
+The 0.57/0.80 history in the sections above is kept as written.

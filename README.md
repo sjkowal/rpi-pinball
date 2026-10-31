@@ -1,21 +1,19 @@
 # rpi-pinball
 
-Build a Raspberry Pi image with [Mission Pinball Framework](https://missionpinball.org) and P-ROC/P3-ROC hardware support installed, ready to run pinball game code. Four MPF versions are supported, in two families with different media controllers:
+Build a Raspberry Pi image with [Mission Pinball Framework](https://missionpinball.org) and P-ROC/P3-ROC hardware support installed, ready to run pinball game code. Two MPF versions are supported, one from each family, with different media controllers:
 
 | MPF | Media controller | Python | What's installed for it |
 |---|---|---|---|
-| **0.57.6** | `mpf-mc` 0.57.1 (Kivy/SDL2) | 3.11 (Debian) | `mpf` + `mpf-mc` |
 | **0.58.0** | `mpf-mc` 0.57.1 (Kivy/SDL2) | 3.11 (Debian) | `mpf` + `mpf-mc` |
-| **0.80.1** | [Godot Media Controller (GMC)](https://missionpinball.org/latest/gmc/) | **3.14.10** | `mpf`, Godot 4.7.2 as `godot`, and the `cage` Wayland kiosk compositor |
-| **0.81.0** | [Godot Media Controller (GMC)](https://missionpinball.org/latest/gmc/) | **3.14.10** | the same as 0.80 |
+| **0.81.0** | [Godot Media Controller (GMC)](https://missionpinball.org/latest/gmc/) | **3.14.10** | `mpf`, Godot 4.7.2 as `godot`, and the `cage` Wayland kiosk compositor |
 
-- **The two families:** 0.58 and 0.81 are MPF's parallel feature releases after 0.57.6 and 0.80.1. 0.58 continues the mpf-mc family, and 0.81 the GMC family.
-- **mpf-mc versions:** there is no mpf-mc 0.58. mpf-mc 0.57.1 requires MPF 0.57.0 or newer, so it serves both lines.
-- **Why two Pythons:** mpf-mc requires Python **below 3.12** (it pins Kivy 2.2.1), so the mpf-mc lines stay on Debian bookworm's Python 3.11. The GMC lines use Python 3.14. Bookworm has nothing newer than 3.11, so that comes from [python-build-standalone](https://github.com/astral-sh/python-build-standalone), checksum-verified at build time.
+- **The two families:** 0.58 and 0.81 are MPF's parallel feature releases after 0.57.6 and 0.80.1. 0.58 continues the mpf-mc family, and 0.81 the GMC family. Releases up to v0.8.0 also carried 0.57 and 0.80 images; from v0.9.0 only 0.58 and 0.81 are built.
+- **mpf-mc versions:** there is no mpf-mc 0.58. mpf-mc 0.57.1 requires MPF 0.57.0 or newer, so it serves 0.58.
+- **Why two Pythons:** mpf-mc requires Python **below 3.12** (it pins Kivy 2.2.1), so the mpf-mc line stays on Debian bookworm's Python 3.11. The GMC line uses Python 3.14. Bookworm has nothing newer than 3.11, so that comes from [python-build-standalone](https://github.com/astral-sh/python-build-standalone), checksum-verified at build time.
 
-Supports the **Raspberry Pi 4** and **Raspberry Pi 5**. One build targets one board and one MPF version; each release carries all eight combinations. (A Pi 3 would work the same way but is not supported yet — see *Adding a Pi model* below.)
+Supports the **Raspberry Pi 4** and **Raspberry Pi 5**. One build targets one board and one MPF version; each release carries all four combinations. (A Pi 3 would work the same way but is not supported yet — see *Adding a Pi model* below.)
 
-Each release also carries **PinbOS Dev**: a Raspberry Pi desktop image for learning MPF and Godot on the Pi itself, with the Godot editor, VS Code and a sample game. It's built for the Pi 5 with MPF 0.81 only. See *[PinbOS Dev](#pinbos-dev-desktop-image-for-learning)* below.
+Each release also carries **PinbOS Dev**: a Raspberry Pi desktop image for learning MPF and Godot on the Pi itself, with the Godot editor, VS Code and a sample game. It's built for the Pi 4 and Pi 5, with MPF 0.81 only. See *[PinbOS Dev](#pinbos-dev-desktop-image-for-learning)* below.
 
 Forked from [rpi-image-gen-example](https://github.com/jonnymacs/rpi-image-gen-example), which wraps Raspberry Pi Foundation's [rpi-image-gen](https://github.com/raspberrypi/rpi-image-gen).
 
@@ -27,9 +25,9 @@ Released images are published as GitHub Releases and listed in an Imager reposit
 rpi-imager --repo https://sjkowal.github.io/rpi-pinball/os_list.json
 ```
 
-Or in the app: **App Options → Content Repository → EDIT**, paste that URL, **APPLY & RESTART**. Then choose your board (**Raspberry Pi 4** or **Raspberry Pi 5**) and pick an entry such as **PinbOS vX.Y.Z · MPF 0.81.0 · Godot MC** or **PinbOS vX.Y.Z · MPF 0.57.6 · mpf-mc** (not "Use custom") — that is what makes the OS Customisation step (hostname, user/password, WiFi, SSH) appear. The list is filtered by the board you chose, so only images built for it are offered, one per MPF version. Imager forgets a custom repository on restart, so re-select it each session. Newest release is listed first, with the newest MPF first within a release.
+Or in the app: **App Options → Content Repository → EDIT**, paste that URL, **APPLY & RESTART**. Then choose your board (**Raspberry Pi 4** or **Raspberry Pi 5**) and pick an entry such as **PinbOS vX.Y.Z · MPF 0.81.0 · Godot MC** or **PinbOS vX.Y.Z · MPF 0.58.0 · mpf-mc** (not "Use custom") — that is what makes the OS Customisation step (hostname, user/password, WiFi, SSH) appear. The list is filtered by the board you chose, so only images built for it are offered, one per MPF version. Imager forgets a custom repository on restart, so re-select it each session. Newest release is listed first, with the newest MPF first within a release.
 
-Assets are named `pinbos-mpf<MPF version>-rpi<N>-<tag>`, so a downloaded file says exactly which MPF it contains and which board it is for. For example, `pinbos-mpf0.57.6-rpi5-v0.8.0.img.xz` is MPF 0.57.6 on a Pi 5, and `pinbos-mpf0.81.0-rpi4-v0.8.0.img.xz` is MPF 0.81.0 on a Pi 4. Releases before v0.8.0 used `pinbos-mpf57-…`/`pinbos-mpf80-…`, which named only the line. Each release carries, **per board and MPF version**, the `.img.xz` (the image, xz-compressed), a `.sha256` for it, and a `.manifest.json`, which is a complete single-image Imager repository (the hosted `os_list.json` is merged from all of them). So any one image, prereleases included, can be used on its own without Pages:
+Assets are named `pinbos-mpf<MPF version>-rpi<N>-<tag>`, so a downloaded file says exactly which MPF it contains and which board it is for. For example, `pinbos-mpf0.58.0-rpi5-v0.9.0.img.xz` is MPF 0.58.0 on a Pi 5, and `pinbos-mpf0.81.0-rpi4-v0.9.0.img.xz` is MPF 0.81.0 on a Pi 4. Releases before v0.8.0 used `pinbos-mpf57-…`/`pinbos-mpf80-…`, which named only the line. Each release carries, **per board and MPF version**, the `.img.xz` (the image, xz-compressed), a `.sha256` for it, and a `.manifest.json`, which is a complete single-image Imager repository (the hosted `os_list.json` is merged from all of them). So any one image, prereleases included, can be used on its own without Pages:
 
 ```bash
 rpi-imager --repo https://github.com/sjkowal/rpi-pinball/releases/download/v0.8.0/pinbos-mpf0.81.0-rpi5-v0.8.0.manifest.json
@@ -40,11 +38,11 @@ You can also download the `.img.xz` directly and use Imager's "Use custom", but 
 ## Build locally
 
 ```bash
-./build.sh              # Pi 5, MPF 0.57.6 (the defaults)
-./build.sh pi4          # Pi 4, MPF 0.57.6
-./build.sh pi5 0.58     # Pi 5, MPF 0.58.0 + mpf-mc
+./build.sh              # Pi 5, MPF 0.58.0 + mpf-mc (the defaults)
+./build.sh pi4          # Pi 4, MPF 0.58.0
 ./build.sh pi5 0.81     # Pi 5, MPF 0.81.0 + Godot MC, Python 3.14
 ./build.sh pi5 0.81 dev # PinbOS Dev: the desktop development image
+./build.sh pi4 0.81 dev # PinbOS Dev for the Pi 4
 ```
 
 One run builds one board with one MPF line. The second argument is the line (major.minor), and the exact version comes from that line's config. The output image lands in `pinball/deploy/` (uncompressed, gitignored), named the same way as a release asset but with the version from `git describe`:
@@ -67,11 +65,11 @@ Knobs:
 - `RPI_IMAGE_OUT_DIR` / `RPI_IMAGE_OUT_NAME` — override the output location and filename outright (CI uses these).
 - `scripts/image-name.sh <model> [version]` (with `MPF_VERSION=` for the line) prints the basename a build would use, without building anything. It refuses a line that isn't supported, or whose config's `mpf.version` disagrees with it.
 - `scripts/image-name.sh --mpf-version 0.81` and `--python-version 0.81` print a line's exact MPF and Python versions.
-- The Godot version for the 0.80 and 0.81 lines is `X-Env-Var-godot_version` in `pinball/layer/pinball-gmc.yaml` (`scripts/image-name.sh --godot-version` prints it).
+- The Godot version for the 0.81 line is `X-Env-Var-godot_version` in `pinball/layer/pinball-gmc.yaml` (`scripts/image-name.sh --godot-version` prints it).
 
 ### How the MPF lines are configured
 
-`pinball/pinball.yaml` is the **shared base**: the OS, partition layout, read-only root, networking, P-ROC and MPF core. It isn't built directly. Each MPF line has a small config, `pinball/pinball-mpf57.yaml`, `-mpf58`, `-mpf80` and `-mpf81`, that `include:`s it and adds only what differs:
+`pinball/pinball.yaml` is the **shared base**: the OS, partition layout, read-only root, networking, P-ROC and MPF core. It isn't built directly. Each MPF line has a small config, `pinball/pinball-mpf58.yaml` and `-mpf81`, that `include:`s it and adds only what differs:
 - **`mpf.version`:** the **exact** MPF release, e.g. `"0.81.0"`. This is **the single source of truth**: the build installs `mpf==` that version and fails unless the venv really has it, and the image filename shows it. `scripts/image-name.sh` refuses a version that isn't in the line, or that lacks a patch number.
 - **`mpf.python_version` and `mpf.python_build`** (GMC lines only): a python-build-standalone Python for the venv. Lines without them use Debian's `python3`.
 - **`layer.mc`:** the media-controller layer, `pinball-mpf-mc` or `pinball-gmc`.
@@ -92,7 +90,7 @@ Two edits: `MODELS` in `scripts/image-name.sh`, and the `MODELS` table in `image
 
 ## Releases (CI)
 
-`.github/workflows/build-image.yml` builds on GitHub-hosted `ubuntu-24.04-arm` runners using the same `Dockerfile` and `build.sh` as a local build, compresses with `xz -T0`, hashes, and publishes. It runs as four jobs: `prepare` (resolve the version, run the release guard once), `build` (a matrix leg per board × MPF line, plus one for PinbOS Dev — nine, in parallel, each on its own runner), `release` (collect every leg's assets and publish the GitHub Release exactly once — publishing from inside the matrix would have the legs racing on `generate_release_notes`), and `publish` (regenerate the Imager repo).
+`.github/workflows/build-image.yml` builds on GitHub-hosted `ubuntu-24.04-arm` runners using the same `Dockerfile` and `build.sh` as a local build, compresses with `xz -T0`, hashes, and publishes. It runs as four jobs: `prepare` (resolve the version, run the release guard once), `build` (a matrix leg per board × MPF line, plus one per board for PinbOS Dev — six, in parallel, each on its own runner), `release` (collect every leg's assets and publish the GitHub Release exactly once — publishing from inside the matrix would have the legs racing on `generate_release_notes`), and `publish` (regenerate the Imager repo).
 
 - **Release**: `git tag v1.0.0 && git push origin v1.0.0`. Creates a GitHub Release with the assets above, then regenerates and deploys the Imager repository.
 - **Prerelease**: a tag containing `-` (e.g. `v1.0.0-rc1`) builds and publishes a release marked *prerelease*, but is **not** listed in the Imager repository.
@@ -108,11 +106,11 @@ Two edits: `MODELS` in `scripts/image-name.sh`, and the `MODELS` table in `image
 2. **Settings → Environments → `github-pages` → Deployment branches and tags**: add a tag rule `v*`. The default policy only allows `main`, which blocks the tag-triggered deploy.
 3. **Settings → Actions → General → Workflow permissions**: *Read and write* (the workflows also declare explicit `permissions:`).
 
-Builds take roughly 30–60 minutes on the hosted arm64 runner; all nine images build in parallel, so a release takes about as long as one image. Everything here is free on a public repository: standard hosted runner minutes are unmetered, release assets have no total storage or bandwidth cap (2 GiB per file), and Pages is free (soft limit 100 GB/month, only the JSON and icon are served from it).
+Builds take roughly 30–60 minutes on the hosted arm64 runner; all six images build in parallel, so a release takes about as long as one image. Everything here is free on a public repository: standard hosted runner minutes are unmetered, release assets have no total storage or bandwidth cap (2 GiB per file), and Pages is free (soft limit 100 GB/month, only the JSON and icon are served from it).
 
 ## PinbOS Dev (desktop image for learning)
 
-PinbOS Dev is a separate image for someone starting out with MPF and the Godot Media Controller. Everything happens on the Pi with a screen, keyboard and mouse; no second computer is needed. In Imager it's listed as **PinbOS Dev vX.Y.Z · MPF 0.81.0 · Godot MC · Desktop (Raspberry Pi 5)**, and the asset names start with `pinbos-dev-` (e.g. `pinbos-dev-mpf0.81.0-rpi5-v0.9.0.img.xz`).
+PinbOS Dev is a separate image for someone starting out with MPF and the Godot Media Controller. Everything happens on the Pi with a screen, keyboard and mouse; no second computer is needed. In Imager it's listed as **PinbOS Dev vX.Y.Z · MPF 0.81.0 · Godot MC · Desktop (Raspberry Pi 5)**, or *(Raspberry Pi 4)* for the Pi 4 build, and the asset names start with `pinbos-dev-` (e.g. `pinbos-dev-mpf0.81.0-rpi5-v0.9.0.img.xz`, `…-rpi4-…` for the Pi 4).
 
 **What's on it:**
 - **Desktop:** the Raspberry Pi OS desktop (labwc on Wayland, its panel, menu and Control Centre), Chromium, a terminal, a text editor and PipeWire sound. It boots straight to the desktop, logged in as the user you set in Imager.
@@ -131,7 +129,7 @@ PinbOS Dev is a separate image for someone starting out with MPF and the Godot M
 - **No MPF at boot.** There's no `mpf.service` or `pinball-autostart`, so nothing fights the desktop for the screen.
 - **No boot-time trims and no eth0 fallback address.** NetworkManager manages both Ethernet and WiFi, so the panel's network menu works.
 - **Swap in RAM.** zram swap at half the RAM, compressed with zstd, so the editor, VS Code and Chromium together don't run out of memory. It never writes to the card. The game images have no swap.
-- **Pi 5, MPF 0.81 only.** The editor and a desktop need the Pi 5.
+- **Pi 4 and Pi 5, MPF 0.81 only.** The Pi 5 is the better fit: the Godot editor, VS Code and Chromium are noticeably slower on a Pi 4, and a 2 GB Pi 4 is tight even with zram. Use a Pi 4 with 4 GB or more.
 
 When the game is ready, flash the matching game image (MPF 0.81.0 · Godot MC) to the machine and `git clone` the project onto it.
 
@@ -139,15 +137,17 @@ When the game is ready, flash the matching game image (MPF 0.81.0 · Godot MC) t
 - `pinball/image/pinball-dev-rpios/`: the two-partition, read-write layout (a copy of the game layout without DATA);
 - `pinball-dev-firstboot`: grows ROOT, applies any deferred Imager preseed, and sets the autologin user;
 - `pinball-desktop`;
-- `pinball-devtools`, with its assets in `pinball/assets/dev/`.
+- `pinball-devtools`, with its assets in `pinball/assets/dev/`;
 - `pinball-dev-swap`: zram swap.
+
+One config serves both boards: `./build.sh pi4 0.81 dev` swaps the device layer, as for the game images.
 
 ## What's on the image
 
 - MPF installed into a dedicated venv at `/opt/mpf/venv` (`pinball/layer/pinball-mpf.yaml`). The exact version is pinned once per line, as `mpf.version` in `pinball/pinball-mpf<NN>.yaml`. The `pip install` hook and the `mpf<version>` part of the image filename both come from it, and the build checks the venv, so they cannot drift.
-- **Python:** Debian's 3.11 on 0.57 and 0.58. On 0.80 and 0.81, Python 3.14.10 from python-build-standalone at `/opt/python/3.14.10/`, which the venv is built from. `python3` on the system stays Debian's 3.11 either way; MPF and `pip` in `/opt/mpf/venv` use the venv's Python.
-- **MPF 0.57 and 0.58 images**: `mpf-mc` 0.57.1 in the same venv (`pinball/layer/pinball-mpf-mc.yaml`).
-- **MPF 0.80 and 0.81 images**: the official Godot 4.7.2 `linux.arm64` build, checksum-verified at build time, at `/opt/godot/<version>/` and on `$PATH` as `godot` — exactly what `mpf both` looks for, so no `gmc.cfg` changes are needed. Plus `cage` (a single-app Wayland compositor), `seatd`, and Mesa's Vulkan/GLES drivers (`pinball/layer/pinball-gmc.yaml`). The GMC plugin itself is **not** on the image: it lives in your game project (`addons/mpf-gmc`), as the GMC docs describe. A sample GMC project is cloned to `~/mpf-project` (`pinball/layer/pinball-sample.yaml`; see *The MPF project folder* below).
+- **Python:** Debian's 3.11 on 0.58. On 0.81, Python 3.14.10 from python-build-standalone at `/opt/python/3.14.10/`, which the venv is built from. `python3` on the system stays Debian's 3.11 either way; MPF and `pip` in `/opt/mpf/venv` use the venv's Python.
+- **MPF 0.58 images**: `mpf-mc` 0.57.1 in the same venv (`pinball/layer/pinball-mpf-mc.yaml`).
+- **MPF 0.81 images**: the official Godot 4.7.2 `linux.arm64` build, checksum-verified at build time, at `/opt/godot/<version>/` and on `$PATH` as `godot` — exactly what `mpf both` looks for, so no `gmc.cfg` changes are needed. Plus `cage` (a single-app Wayland compositor), `seatd`, and Mesa's Vulkan/GLES drivers (`pinball/layer/pinball-gmc.yaml`). The GMC plugin itself is **not** on the image: it lives in your game project (`addons/mpf-gmc`), as the GMC docs describe. A sample GMC project is cloned to `~/mpf-project` (`pinball/layer/pinball-sample.yaml`; see *The MPF project folder* below).
 - SSH enabled; WiFi via NetworkManager (`pinball-networkmanager`); hostname, user, password, WiFi credentials and SSH keys all come from Imager's OS Customisation (`init_format: rpi-preseed`; Imager applies most of it at flash time, anything deferred to boot is consumed by `pinball-readonly-root`'s first-boot script).
 - Working DNS resolution.
 - P-ROC/P3-ROC hardware support: `libpinproc` (built from the `dev` branch) installed system-wide, the `pinproc` Python extension (`pypinproc`) installed into the MPF venv, and udev rules so the boards are accessible without root.
@@ -162,7 +162,7 @@ When the game is ready, flash the matching game image (MPF 0.81.0 · Godot MC) t
 
 Your game's config and code (MPF's docs call it the "MPF project folder") live at `~/mpf-project`.
 
-- **MPF 0.80 and 0.81 images ship a sample game there:** [mpf-sample](https://github.com/sjkowal/mpf-sample), a small GMC project with an attract-mode slide and sound. It needs no pinball hardware, so you can try it straight after flashing:
+- **MPF 0.81 images ship a sample game there:** [mpf-sample](https://github.com/sjkowal/mpf-sample), a small GMC project with an attract-mode slide and sound. It needs no pinball hardware, so you can try it straight after flashing:
   ```bash
   ssh <user>@<device-ip>
   cd ~/mpf-project && gmc-run
@@ -172,7 +172,7 @@ Your game's config and code (MPF's docs call it the "MPF project folder") live a
   - **Its Godot assets are imported at build time,** so the first `gmc-run` starts right away.
   - **Autostart is still off.** Run `pinball-autostart on` to boot into it.
   - **Which commit ships** is `sample_ref` in `pinball/layer/pinball-sample.yaml`, a full commit SHA. Change it to ship a newer sample; the build fails unless the clone is at exactly that commit.
-- **MPF 0.57 and 0.58 images start without one,** since mpf-sample is a GMC project that mpf-mc can't display. Add yours after first boot:
+- **MPF 0.58 images start without one,** since mpf-sample is a GMC project that mpf-mc can't display. Add yours after first boot:
   ```bash
   ssh <user>@<device-ip>
   git clone <your-mpf-project-repo> ~/mpf-project
@@ -180,7 +180,7 @@ Your game's config and code (MPF's docs call it the "MPF project folder") live a
   ```
   `mpf both` runs the core engine and media controller together — that's what you want for a full running machine. `mpf` alone only runs the core (no display), `mpf mc` alone only runs the media controller. `machine_path` is optional if you're already `cd`'d into a folder with a `config/` subfolder in it. (`mpf`/`mpf-mc` are on `$PATH` via `/etc/profile.d/mpf-path.sh`.)
 
-  **Running a project on an MPF 0.80 or 0.81 image:** use `gmc-run` rather than `mpf both`:
+  **Running a project on an MPF 0.81 image:** use `gmc-run` rather than `mpf both`:
   ```bash
   cd ~/mpf-project && git pull && gmc-run      # or: gmc-run ~/mpf-project
   ```
@@ -220,11 +220,11 @@ journalctl -u mpf -f       # follow MPF's output
 
 - **The switch is a file:** `~/mpf-project/.autostart`. It's on the writable DATA partition, so neither maintenance mode nor a config edit is needed. `pinball-autostart` also starts or stops the service right away, using `sudo`. Creating or deleting the file by hand works too and takes effect at the next boot. If the MPF project folder is a git repo, add `.autostart` to its `.gitignore`, unless you *want* every Pi that clones the repo to autostart.
 - **Coming from v0.5.0?** That release used `~/machine`. Move it with `mv ~/machine ~/mpf-project`, or set `MPF_PROJECT_DIR=/home/<user>/machine` in `/etc/default/pinball-mpf`. The autostart switch moves with the folder.
-- **What it runs:** `mpf both` on MPF 0.57/0.58 images. On MPF 0.80/0.81 images it runs `gmc-run`, which imports the Godot assets and then starts `cage -- mpf both` full screen. It runs from `~/mpf-project`, as the login user (UID 1000, so an Imager-renamed user is fine), with `-t -P -A`:
+- **What it runs:** `mpf both` on MPF 0.58 images. On MPF 0.81 images it runs `gmc-run`, which imports the Godot assets and then starts `cage -- mpf both` full screen. It runs from `~/mpf-project`, as the login user (UID 1000, so an Imager-renamed user is fine), with `-t -P -A`:
   - `-t`: no text UI.
   - `-P`: production mode, which waits for hardware and exits if startup fails.
   - `-A`: no config cache files.
-- **Production mode reads a config bundle, not your YAML.** With `-P`, MPF loads a prebuilt, pickled copy of your config: `mpf_config.bundle` in the MPF project folder, plus `mpf_mc_config.bundle` for mpf-mc on 0.57. The service builds it with `mpf build production_bundle` (`-b` on 0.80) when it's missing. **It isn't rebuilt when you change your config,** and a stale bundle silently runs the old config. After editing the MPF config, delete the bundles and restart:
+- **Production mode reads a config bundle, not your YAML.** With `-P`, MPF loads a prebuilt, pickled copy of your config: `mpf_config.bundle` in the MPF project folder, plus `mpf_mc_config.bundle` for mpf-mc on 0.58. The service builds it with `mpf build production_bundle` (`-b` on 0.80) when it's missing. **It isn't rebuilt when you change your config,** and a stale bundle silently runs the old config. After editing the MPF config, delete the bundles and restart:
   ```bash
   rm ~/mpf-project/*.bundle && sudo systemctl restart mpf
   ```
@@ -236,7 +236,7 @@ journalctl -u mpf -f       # follow MPF's output
 
 ## Exported GMC builds (optional)
 
-*MPF 0.80/0.81 only.* An **exported build** is your Godot project packaged as a standalone app. In the Godot editor, choose **Project → Export → Linux**, architecture **arm64**. This uses Godot's arm64 export templates, a one-time download that must match the image's Godot version (4.7.2). The result is an executable plus a `.pck` file holding your scenes, scripts and assets, already imported.
+*MPF 0.81 only.* An **exported build** is your Godot project packaged as a standalone app. In the Godot editor, choose **Project → Export → Linux**, architecture **arm64**. This uses Godot's arm64 export templates, a one-time download that must match the image's Godot version (4.7.2). The result is an executable plus a `.pck` file holding your scenes, scripts and assets, already imported.
 
 ### Why the image doesn't use exports
 
@@ -280,7 +280,7 @@ The image is set up for a short power-on-to-game time. Most of this is in `pinba
 - **No initramfs.** It's neither loaded nor kept on the boot partition: the build removes it there and sets `INITRAMFS=no` in `/etc/default/raspi-firmware`, so kernel upgrades don't copy it back. An unused copy stays at `/boot/initrd.img-*` on the root partition, where it's harmless: the build regenerates it in its last step. The kernel finds the root partition by PARTUUID itself, and has SD/eMMC, NVMe, USB storage and ext4 built in. `ro` on the kernel command line keeps the root read-only from the start. The exception is the boot splash: the `rpi-splash-screen` layer displays its image from the initramfs, so enabling it keeps the initramfs, automatically.
 - **No serial console** (see below), and `quiet loglevel=3` on the kernel command line.
 - **Smaller trims:** camera auto-detect is off, the firmware's rainbow splash is off, `multi-user.target` is the default, and the apt-daily timers are off (they can't work on the read-only root).
-- **On MPF 0.80/0.81,** `gmc-run` skips the Godot asset import when nothing in the project changed.
+- **On MPF 0.81,** `gmc-run` skips the Godot asset import when nothing in the project changed.
 - **Already minimal:** no swap, no Bluetooth, ModemManager, Avahi or cloud-init, and nothing at boot waits for the network.
 
 Deliberately **not** done:
