@@ -151,6 +151,11 @@ Builds take roughly 30–60 minutes on the hosted arm64 runner; all eight images
 
   Then re-import on the Pi (`gmc-run` does it). MSDF text also stays sharp at any size, which suits a full-screen display.
 
+  **Audio buffer: 60 ms by default.** The image has no sound server, so Godot writes straight to ALSA. Its own default buffer (15 ms) is too short for that on a Pi, and the sound cracks when the buffer runs dry. `godot` on the image is a small wrapper that adds `--audio-output-latency 60`, so `mpf both` and `gmc-run` get it too. 45 ms of extra delay isn't noticeable on a pinball machine. It's left out when:
+  - **your project sets Audio → Driver → Output Latency itself:** the project's value wins;
+  - **Godot runs `--headless`,** as the asset import does;
+  - **`GMC_AUDIO_LATENCY=0`.** Set it to another number to change the default, either on the command line or in `/etc/default/pinball-mpf` for MPF at boot.
+
   Edit your project with **Godot 4.7.x**, the version on the image. Prefer the *Mobile* or *Compatibility* renderer. Godot plays only OGG Theora video, decoded in software, which the Pi does poorly, so the GMC docs recommend a Pi for DMD-style games.
 
 ## Starting MPF at boot

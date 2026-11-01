@@ -1,0 +1,52 @@
+#!/bin/sh
+# /usr/local/bin/godot -- runs the image's Godot (/opt/godot/godot) with a
+# larger audio output buffer by default.
+#
+# Godot's default output latency is 15 ms. On a Pi, with no sound server
+# (Godot writes straight to ALSA), that's too short while a game is
+# rendering: the buffer runs dry and the sound cracks. Measured on a Pi 4:
+# 4-8 underruns a minute at 15 ms, none at 60 ms
+# (github.com/Ashram56/MPF-Godot-Packaging, fixes/godot/alsa-output-latency.md).
+# 45 ms of extra delay isn't noticeable on a pinball machine.
+#
+# So this adds --audio-output-latency $GMC_AUDIO_LATENCY (default 60) --
+# a default only. It's left out when:
+#   - the project sets audio/driver/output_latency itself (project.godot),
+#   - the caller passes --audio-output-latency,
+#   - Godot runs --headless (no audio, e.g. gmc-run's asset import),
+#   - GMC_AUDIO_LATENCY=0.
+# `mpf both` and gmc-run start Godot as `godot` from $PATH, so this covers
+# them. Installed by the pinball-gmc layer.
+
+GODOT=/opt/godot/godot
+LATENCY="${GMC_AUDIO_LATENCY:-60}"
+
+add=1
+case "$LATENCY" in
+    ''|0|*[!0-9]*) add=0 ;;
+esac
+
+# The project folder: --path <dir> if given, else the current directory
+# (which is how `mpf both` starts it).
+project="."
+prev=""
+for arg in "$@"; do
+    case "$arg" in
+        --audio-output-latency|--audio-output-latency=*|--headless) add=0 ;;
+    esac
+    [ "$prev" = "--path" ] && project="$arg"
+    case "$arg" in --path=*) project="${arg#--path=}" ;; esac
+    prev="$arg"
+done
+
+# A project's own setting wins: [audio] driver/output_latency=..., including
+# feature-tag variants such as driver/output_latency.linuxbsd=...
+if [ "$add" = 1 ] && [ -f "$project/project.godot" ] &&
+   awk '/^\[/ { in_audio = ($0 == "[audio]") } in_audio && /^driver\/output_latency/ { found = 1 } END { exit !found }' "$project/project.godot"; then
+    add=0
+fi
+
+if [ "$add" = 1 ]; then
+    exec "$GODOT" --audio-output-latency "$LATENCY" "$@"
+fi
+exec "$GODOT" "$@"

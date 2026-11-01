@@ -852,3 +852,24 @@ Tested in a bookworm container with that Python:
   - `gen-os-list.py` takes `--mpf-version` (shown in the entry name) and `--python-version` (shown in the description), and records `mpf_version` in each entry.
   - Its fallback that reads the line from a release URL understands both `-mpf0.81.0-` and the older `-mpf81-`.
   - `imager-repo.sh` finds both naming styles in `pinball/deploy/`. It doesn't pass a Python version for local images, because the filename doesn't record it and an older image may predate the config.
+
+## Godot audio output latency (60 ms default)
+
+Added 2026-10-27. Godot's default audio output latency is 15 ms. The image has no sound server (no PipeWire or PulseAudio, only `libpulse0`), so Godot's ALSA driver writes straight to the hardware.
+
+[Ashram56/MPF-Godot-Packaging](https://github.com/Ashram56/MPF-Godot-Packaging), `fixes/godot/alsa-output-latency.md`, measured this on a Pi 4 (analogue jack, no dmix): **4–8 underruns a minute at 15 ms, none at 60 ms**. 45 ms of extra delay wasn't noticeable on a pinball machine. It also notes that Godot's ALSA driver reports `AudioServer.get_output_latency()` as 0 (it doesn't use `snd_pcm_delay`), which matters for syncing video to audio.
+
+**Why a wrapper:** the latency is a per-project setting (`audio/driver/output_latency`), and Godot 4.7.2 also has a command-line override, `--audio-output-latency <ms>` (`main/main.cpp`). An image-wide `override.cfg` next to the binary was rejected, because it would override a project's own value. Instead, `/usr/local/bin/godot` is now `pinball/assets/godot-wrapper`, which runs `/opt/godot/godot`, a symlink to the versioned binary. It adds `--audio-output-latency ${GMC_AUDIO_LATENCY:-60}` except when:
+- the project's `project.godot` has `driver/output_latency` (including feature-tag variants) in `[audio]`;
+- the caller passed the option;
+- `--headless` is given;
+- `GMC_AUDIO_LATENCY` is 0 or not a number.
+
+The project folder is taken from `--path` or the current directory, which is how `mpf both` starts Godot.
+
+Tests:
+- **The wrapper, with a stand-in Godot, 12 cases:** a plain project gets 60; a project setting the latency, or its `.linuxbsd` variant, gets nothing added; the key in another section still gets 60; `--headless` gets nothing; a caller's own option is passed through alone; 0 and non-numbers get nothing; 100 gets 100; `--path` to a project that sets the latency, and to one that doesn't, from elsewhere; and `--version`.
+- **The real 4.7.2 binary** accepts `--audio-output-latency 60` ahead of other options.
+
+**Not verified on hardware:** whether the crackling actually goes away under load on a Pi 5 or a Pi 4.
+
