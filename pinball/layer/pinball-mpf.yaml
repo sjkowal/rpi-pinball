@@ -4,7 +4,7 @@
 # X-Env-Layer-Desc: Mission Pinball Framework (MPF) core installed into a
 #  dedicated venv at /opt/mpf/venv. Media-controller-agnostic: the media
 #  controller comes from a separate layer chosen by the MPF line's config
-#  (pinball-mpf-mc for 0.57/0.58, pinball-gmc for 0.80/0.81). No MPF project folder (game
+#  (pinball-mpf-mc for 0.58, pinball-gmc for 0.81). No MPF project folder (game
 #  code) baked in, and MPF is not started automatically -- ssh in and run
 #  `mpf both <machine_path>` manually once an MPF project folder is added.
 #
@@ -91,8 +91,8 @@ mmdebstrap:
     - chroot $1 /opt/mpf/venv/bin/pip install --upgrade pip
     - |-
       # Pinned to an exact release, which the image filename states. MPF
-      # core only -- the media controller (mpf-mc for 0.57/0.58, Godot/GMC
-      # for 0.80/0.81) is its own layer. No mpf-monitor (needs PyQt6, known
+      # core only -- the media controller (mpf-mc for 0.58, Godot/GMC
+      # for 0.81) is its own layer. No mpf-monitor (needs PyQt6, known
       # Pi compatibility issues).
       # CC=gcc: a python-build-standalone Python names clang as its compiler.
       chroot $1 env CC=gcc CXX=g++ /opt/mpf/venv/bin/pip install "mpf==$IGconf_mpf_version"
@@ -104,7 +104,7 @@ mmdebstrap:
       # DistributionNotFound for "ruamel.yaml.clib>=0.2.7" even though pip
       # installed it correctly. Duplicate its dist-info dir under its dotted
       # name — purely additive, doesn't touch any installed files.
-      # Still needed on 0.80/0.81: its CLI loader still imports pkg_resources and
+      # Still needed on 0.81: its CLI loader still imports pkg_resources and
       # it still pins setuptools~=72.2. Skipped (not failed) if a future
       # ruamel.yaml.clib stops shipping the underscored dist-info; the
       # `mpf --help` check below is what decides whether the CLI works.

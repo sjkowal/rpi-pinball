@@ -1,0 +1,21 @@
+#!/bin/bash
+# pinball-welcome -- open the PinbOS Dev welcome page in the browser.
+#
+#   pinball-welcome          # open it (the "Welcome to PinbOS Dev" menu entry)
+#   pinball-welcome --once   # open it only the first time (desktop autostart)
+#
+# Installed by the pinball-devtools layer.
+set -eu
+
+PAGE=/usr/share/pinball/welcome/index.html
+MARKER="${XDG_CONFIG_HOME:-$HOME/.config}/pinball/welcome-shown"
+
+if [ "${1:-}" = "--once" ]; then
+  [ ! -e "$MARKER" ] || exit 0
+  mkdir -p "$(dirname "$MARKER")"
+  date -u +%FT%TZ > "$MARKER"
+  # Give the panel and the rest of the session a moment to come up.
+  sleep 5
+fi
+
+exec xdg-open "file://$PAGE"

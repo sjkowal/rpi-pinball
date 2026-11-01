@@ -1,0 +1,2 @@
+SUBSYSTEM=="block", ENV{RPI_ONBOOTDEV}=="1", ENV{ID_FS_LABEL}=="BOOT", SYMLINK+="disk/by-slot/boot"
+SUBSYSTEM=="block", ENV{RPI_ONBOOTDEV}=="1", ENV{ID_FS_LABEL}=="ROOT", SYMLINK+="disk/by-slot/system"

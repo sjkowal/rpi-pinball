@@ -1,11 +1,11 @@
 # METABEGIN
 # X-Env-Layer-Name: pinball-sample
 # X-Env-Layer-Category: app-misc
-# X-Env-Layer-Desc: The default MPF project folder for the GMC lines (0.80,
-#  0.81): a git clone of mpf-sample (github.com/sjkowal/mpf-sample) at
+# X-Env-Layer-Desc: The default MPF project folder for the GMC line
+#  (0.81): a git clone of mpf-sample (github.com/sjkowal/mpf-sample) at
 #  ~/mpf-project, so a freshly flashed image has a working game to run with
 #  `gmc-run`. mpf-sample is a GMC project (project.godot, the mpf-gmc addon
-#  vendored in addons/, slides), so the mpf-mc lines (0.57, 0.58) do not
+#  vendored in addons/, slides), so the mpf-mc line (0.58) does not
 #  get it.
 #
 #  Pinned to an exact commit (sample_ref) so a release always ships the same

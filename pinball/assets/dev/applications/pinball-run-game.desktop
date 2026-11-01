@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Run Pinball Game
+Comment=Run ~/mpf-project with MPF and the Godot Media Controller (gmc-run)
+Exec=lxterminal --title="Pinball game" -e bash -lc 'gmc-run "$HOME/mpf-project"; echo; read -r -p "Game stopped. Press Enter to close this window."'
+Icon=applications-games
+Terminal=false
+Categories=Game;Development;

@@ -1,0 +1,49 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-dev-firstboot
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: First-boot setup for the PinbOS Dev (desktop) image,
+#  which has a normal writable root (pinball-dev-image-rpios). Installs
+#  pinball-dev-firstboot.service, which on the first boot grows the ROOT
+#  partition to fill the device (online, no reboot), applies any deferred
+#  Raspberry Pi Imager rpi-preseed customisation (pinball-apply-preseed.py,
+#  shared with the game images), and points the desktop autologin at the
+#  UID-1000 user, whatever Imager renamed it to. The game images use
+#  pinball-readonly-root instead.
+# X-Env-Layer-Version: 1.0.0
+# METAEND
+---
+mmdebstrap:
+  packages:
+    # growpart, used by pinball-dev-firstboot.sh to grow ROOT in place.
+    - cloud-guest-utils
+    - fdisk
+    - e2fsprogs
+    # Consumers for the rpi-preseed TOML (userconf renames the UID-1000
+    # placeholder account; ssh-import-id for the [ssh] section).
+    - userconf-pi
+    - ssh-import-id
+  customize-hooks:
+    - |-
+      install -m 755 /home/imagegen/pinball/layer/pinball-apply-preseed.py $1/usr/local/sbin/pinball-apply-preseed.py
+      install -m 755 /home/imagegen/pinball/layer/pinball-dev-firstboot.sh $1/usr/local/sbin/pinball-dev-firstboot.sh
+    - |-
+      # Before anything that uses the identity this script finalises:
+      # NetworkManager (the preseed may write a wifi profile), sshd, logins
+      # and the desktop's display manager.
+      cat <<'EOSVC' > $1/etc/systemd/system/pinball-dev-firstboot.service
+      [Unit]
+      Description=PinbOS Dev first-boot setup (grow /, apply Imager preseed, desktop autologin)
+      ConditionPathExists=!/var/lib/pinball/firstboot-done
+      After=local-fs.target systemd-remount-fs.service
+      Before=NetworkManager.service ssh.service
+      Before=systemd-user-sessions.service getty.target display-manager.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/local/sbin/pinball-dev-firstboot.sh
+
+      [Install]
+      WantedBy=multi-user.target
+      EOSVC
+      chroot $1 systemctl enable pinball-dev-firstboot.service

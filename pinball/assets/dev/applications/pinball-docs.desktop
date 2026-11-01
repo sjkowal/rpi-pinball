@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MPF & GMC Documentation
+Comment=Mission Pinball Framework and Godot Media Controller docs (online)
+Exec=xdg-open https://missionpinball.org/latest/
+Icon=help-contents
+Terminal=false
+Categories=Development;Education;

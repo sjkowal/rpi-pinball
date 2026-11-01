@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Welcome to PinbOS Dev
+Comment=How to run and change the sample pinball game
+Exec=pinball-welcome
+Icon=help-browser
+Terminal=false
+Categories=Development;Education;

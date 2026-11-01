@@ -5,7 +5,7 @@
 #
 # SHARED BASE -- not built directly. Each MPF release line has its own small
 # config that includes this file and adds only what differs:
-# pinball-mpf57.yaml (mpf-mc) and pinball-mpf80.yaml (Godot/GMC). Those set
+# pinball-mpf58.yaml (mpf-mc) and pinball-mpf81.yaml (Godot/GMC). Those set
 # `mpf.version` and the media-controller layer (`layer.mc`); building this
 # file on its own fails on pinball-mpf's missing required `version`, by
 # design. `./build.sh [model] [mpf line]` picks the right one.

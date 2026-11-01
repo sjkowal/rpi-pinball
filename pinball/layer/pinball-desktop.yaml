@@ -1,0 +1,109 @@
+# METABEGIN
+# X-Env-Layer-Name: pinball-desktop
+# X-Env-Layer-Category: app-misc
+# X-Env-Layer-Desc: The Raspberry Pi desktop for the PinbOS Dev image: the
+#  same labwc (Wayland) session, panel, greeter and theme as Raspberry Pi OS
+#  bookworm, from archive.raspberrypi.com, plus Chromium, a terminal, a text
+#  editor and PipeWire sound. Boots to the desktop, logged in automatically
+#  as the UID-1000 user (pinball-dev-firstboot names whichever user Imager
+#  created).
+#
+#  Package set: rpi-image-gen installs without Recommends, so
+#  raspberrypi-ui-mods alone would give a bare session. The Recommends that
+#  make up the labwc desktop (panel plugins, greeter, theme, icons,
+#  wallpaper, Xwayland, screenshots, idle/blanking, the Control Centre) are
+#  listed explicitly instead of pulling every recursive Recommend, which
+#  would also bring printing, Bluetooth and the X11/wayfire extras.
+#
+#  Networking: on the game images NetworkManager only manages wlan0 and
+#  systemd-networkd keeps eth0 (pinball-networkmanager). On a desktop the
+#  panel's network applet needs NetworkManager to own eth0 too, so this
+#  layer reverses that split. systemd-networkd stays installed (bookworm-
+#  minbase requires it as the network activator) but manages nothing.
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Requires: pinball-networkmanager
+# METAEND
+---
+mmdebstrap:
+  packages:
+    # The desktop itself and the Recommends Raspberry Pi OS's labwc
+    # session uses (see the header).
+    - raspberrypi-ui-mods
+    - lightdm
+    - pi-greeter
+    - labwc
+    - labwc-prompt
+    - wf-panel-pi
+    - wfplug-menu
+    - wfplug-netman
+    - wfplug-volumepulse
+    - wfplug-cpu
+    - wfplug-cputemp
+    - wfplug-gpu
+    - wfplug-ejecter
+    - wfplug-power
+    - xwayland
+    - kanshi
+    - swayidle
+    - wlopm
+    - grim
+    - pipanel
+    - rc-gui
+    - pishutdown
+    - agnostics
+    - fonts-piboto
+    - pixflat-theme
+    - pixflat-icons
+    - gnome-icon-theme
+    - rpd-wallpaper
+    - qt5ct
+    - xdg-utils
+    - gvfs-backends
+    # Sound: PipeWire with the PulseAudio shim the volume plugin talks to.
+    - pipewire
+    - pipewire-pulse
+    - wireplumber
+    # Apps a newcomer expects.
+    - chromium
+    - rpi-chromium-mods
+    - lxterminal
+    - mousepad
+  customize-hooks:
+    - |-
+      # Fail the build, not the first boot, if the session or greeter the
+      # lightdm config below names does not exist.
+      set -eu
+      for f in usr/share/wayland-sessions/LXDE-pi-labwc.desktop usr/share/xgreeters/pi-greeter-labwc.desktop; do
+        [ -f "$1/$f" ] || { echo "pinball-desktop: missing /$f" >&2; ls "$1/usr/share/wayland-sessions" "$1/usr/share/xgreeters" >&2 || true; exit 1; }
+      done
+    - |-
+      # labwc session, the labwc greeter, and autologin for the UID-1000
+      # user -- what raspi-config's "Desktop Autologin" (B4) and "labwc"
+      # (W3) choices set. In a drop-in, since lightdm.conf itself is
+      # read last and wins: changes made later with raspi-config or the
+      # Control Centre (which edit lightdm.conf) still take effect.
+      # pinball-dev-firstboot.sh rewrites autologin-user to the real name.
+      set -eu
+      mkdir -p $1/etc/lightdm/lightdm.conf.d
+      cat <<EOCONF > $1/etc/lightdm/lightdm.conf.d/50-pinball-dev.conf
+      [Seat:*]
+      greeter-session=pi-greeter-labwc
+      user-session=LXDE-pi-labwc
+      autologin-session=LXDE-pi-labwc
+      autologin-user=$IGconf_device_user1
+      EOCONF
+      # Debian's lightdm.conf ships these commented out; make sure nothing
+      # in it overrides the drop-in.
+      if [ -f $1/etc/lightdm/lightdm.conf ]; then
+        sed -i -E 's/^(greeter-session|user-session|autologin-session|autologin-user)=/#&/' $1/etc/lightdm/lightdm.conf
+      fi
+    - chroot $1 systemctl set-default graphical.target
+    - $BDEBSTRAP_HOOKS/enable-units "$1" lightdm
+    - |-
+      # NetworkManager owns eth0 as well (see the header): undo
+      # pinball-networkmanager's eth0 exclusion, and tell systemd-networkd
+      # to leave eth0 alone the same way it already leaves wlan0 alone.
+      set -eu
+      rm -f "$1/etc/NetworkManager/conf.d/unmanaged-eth0.conf"
+      mkdir -p "$1/etc/systemd/network/01-eth0.network.d"
+      printf '[Link]\nUnmanaged=yes\n' > "$1/etc/systemd/network/01-eth0.network.d/10-networkmanager.conf"
