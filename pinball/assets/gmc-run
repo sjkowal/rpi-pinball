@@ -8,6 +8,7 @@
 #   GMC_SKIP_IMPORT=1 gmc-run     # skip the import step
 #   GMC_FORCE_IMPORT=1 gmc-run    # import even if nothing seems to have changed
 #   GMC_SHOW_CURSOR=1 gmc-run     # keep the mouse pointer visible
+#   GMC_IMPORT_ONLY=1 gmc-run     # import (if needed), then exit without running
 #
 # Why the import step is not optional: running a Godot project (which is
 # what `mpf both` does -- it starts `godot` in the project folder) never
@@ -92,6 +93,10 @@ else
   godot --headless --import --path "$PROJECT" || die "godot --import failed"
   top_level > "$STAMP"
 fi
+
+# Just the import, e.g. the pinball-sample layer pre-importing the sample
+# project at build time so the first run on the Pi starts straight away.
+[ -z "${GMC_IMPORT_ONLY:-}" ] || exit 0
 
 # Already inside a graphical session (a desktop, or a cage started some
 # other way): no need for a compositor of our own.
